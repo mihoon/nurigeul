@@ -58,12 +58,20 @@ const HWP5 = (() => {
     const TT = ['LEFT', 'RIGHT', 'CENTER', 'DECIMAL'];
     x += `<hh:tabProperties itemCnt="${im.tabDefinitions.length}">` + im.tabDefinitions.map((t, i) => `<hh:tabPr id="${i}" autoTabLeft="${t.leftTab ? 1 : 0}" autoTabRight="${t.rightTab ? 1 : 0}">`
       + (t.tabInfos || []).map((ti) => `<hh:tabItem pos="${half(ti.position)}" type="${TT[ti.kind] || 'LEFT'}" leader="${ti.borderKind ? LINE[ti.borderKind] || 'SOLID' : 'NONE'}"/>`).join('') + '</hh:tabPr>').join('') + '</hh:tabProperties>';
+    // 문단 번호·글머리표 (번호 모양은 문단 머리 속성의 5~8비트)
+    const NUMF = ['DIGIT', 'CIRCLED_DIGIT', 'ROMAN_CAPITAL', 'ROMAN_SMALL', 'LATIN_CAPITAL', 'LATIN_SMALL', 'CIRCLED_LATIN_CAPITAL', 'CIRCLED_LATIN_SMALL', 'HANGUL_SYLLABLE', 'CIRCLED_HANGUL_SYLLABLE', 'HANGUL_JAMO', 'CIRCLED_HANGUL_JAMO', 'HANGUL_PHONETIC', 'IDEOGRAPH', 'CIRCLED_IDEOGRAPH'];
+    const heads = (hs, start) => (hs || []).map((hd, lv) => `<hh:paraHead start="${hd.startNumber != null ? hd.startNumber : 1}" level="${lv + 1}" align="LEFT" useInstWidth="${hd.useInstanceWidth ? 1 : 0}" autoIndent="${hd.autoIndent ? 1 : 0}" widthAdjust="0" textOffsetType="PERCENT" textOffset="${hd.textOffset || 50}" numFormat="${NUMF[((hd.attr >>> 5) & 15)] || 'DIGIT'}" charPrIDRef="4294967295" checkable="0">${esc(hd.numberFormat || '')}</hh:paraHead>`).join('');
+    const nums = im.numberings || [];
+    if (nums.length) x += `<hh:numberings itemCnt="${nums.length}">` + nums.map((n, i) => `<hh:numbering id="${i + 1}" start="${n.start || 0}">${heads(n.paragraphHeads)}</hh:numbering>`).join('') + '</hh:numberings>';
+    const buls = im.bullets || [];
+    if (buls.length) x += `<hh:bullets itemCnt="${buls.length}">` + buls.map((bl, i) => `<hh:bullet id="${i + 1}" char="${esc(bl.bulletChar || '')}" useImage="0"/>`).join('') + '</hh:bullets>';
     // 문단 모양 (HWP 5는 여백 값을 두 배로 적음)
     x += `<hh:paraProperties itemCnt="${im.paragraphShapes.length}">` + im.paragraphShapes.map((p, i) => {
       const lsKind = ['PERCENT', 'FIXED', 'BETWEEN_LINES', 'AT_LEAST'][p.lineSpaceKindOld || 0] || 'PERCENT';
       const ls = lsKind === 'PERCENT' ? p.lineSpaceOld || 160 : half(p.lineSpaceOld);
       return `<hh:paraPr id="${i}" tabPrIDRef="${p.tabDefinitionId || 0}" condense="0" fontLineHeight="0" snapToGrid="1" suppressLineNumbers="0" checked="0">`
         + `<hh:align horizontal="${ALIGN[p.align] || 'JUSTIFY'}" vertical="BASELINE"/>`
+        + `<hh:heading type="${['NONE', 'OUTLINE', 'NUMBER', 'BULLET'][p.headingKind || 0] || 'NONE'}" idRef="${p.numberingBulletId || 0}" level="${p.headingLevel || 0}"/>`
         + `<hh:margin><hc:intent value="${half(p.indent)}" unit="HWPUNIT"/><hc:left value="${half(p.paddingLeft)}" unit="HWPUNIT"/><hc:right value="${half(p.paddingRight)}" unit="HWPUNIT"/><hc:prev value="${half(p.marginTop)}" unit="HWPUNIT"/><hc:next value="${half(p.marginBottom)}" unit="HWPUNIT"/></hh:margin>`
         + `<hh:lineSpacing type="${lsKind}" value="${ls}" unit="HWPUNIT"/><hh:border borderFillIDRef="${p.borderFillId || 0}" offsetLeft="0" offsetRight="0" offsetTop="0" offsetBottom="0" connect="0" ignoreMargin="0"/></hh:paraPr>`;
     }).join('') + '</hh:paraProperties>';
@@ -166,7 +174,8 @@ const HWP5 = (() => {
           else if (code === 10) buf += '<hp:lineBreak/>';
           else if (code === 9) buf += '<hp:tab width="4000" leader="0" type="1"/>';
           else if (code === 24) buf += '-';
-          else if (code === 30 || code === 31) buf += ' ';
+          else if (code === 30) buf += '<hp:nbSpace/>';   // 묶음 빈칸
+          else if (code === 31) buf += '<hp:fwSpace/>';   // 고정폭 빈칸
           else if (EXTENDED.has(code)) { flushT(); x += controlXml(controls.shift()); }
         } else buf += esc(String.fromCodePoint(code));
         pos += ch.bytes || 1;

@@ -223,7 +223,7 @@ const Model = {
       };
     });
     const wrap = table.dataset.wrap || 'inline';
-    const out = { t: 'table', nr: g.nr, nc: g.nc, widths: g.widths, heights, align, cells, wrap, ...Look.model(table) };
+    const out = { t: 'table', nr: g.nr, nc: g.nc, widths: g.widths, heights, align, cells, wrap, shift: align === 'left' ? +table.dataset.shift || 0 : 0, ...Look.model(table) };
     if (wrap === 'front' || wrap === 'behind') { out.x = parseFloat(table.style.left) || 0; out.y = parseFloat(table.style.top) || 0; }
     return out;
   },

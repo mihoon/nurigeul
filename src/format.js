@@ -283,7 +283,7 @@ const Fmt = {
         },
         para: block && block !== Sel.editor ? {
           style: { textAlign: block.style.textAlign, lineHeight: block.style.lineHeight, marginLeft: block.style.marginLeft, marginRight: block.style.marginRight, textIndent: block.style.textIndent, marginTop: block.style.marginTop, marginBottom: block.style.marginBottom, paddingTop: block.style.paddingTop, paddingBottom: block.style.paddingBottom },
-          tabs: block.dataset.tabs || '', distribute: block.classList.contains('align-distribute'), pstyle: block.dataset.style || '',
+          tabs: block.dataset.tabs || '', distribute: block.classList.contains('align-distribute'), pstyle: block.dataset.style || '', sfile: 'sfile' in block.dataset,
         } : null,
       };
       status('모양을 복사했습니다. 블록을 지정한 뒤 다시 Alt+C를 누르면 적용됩니다.');
@@ -298,6 +298,7 @@ const Fmt = {
         if (cp.para.tabs) b.dataset.tabs = cp.para.tabs; else delete b.dataset.tabs;
         b.classList.toggle('align-distribute', cp.para.distribute);
         if (cp.para.pstyle) b.dataset.style = cp.para.pstyle; else delete b.dataset.style;
+        if (cp.para.sfile) b.dataset.sfile = ''; else delete b.dataset.sfile;
       });
       Sel.restore(saved);
       TabStops.layoutAll();
@@ -382,6 +383,7 @@ const Fmt = {
   },
   setStyle(name) {
     this.eachBlock((b) => {
+      delete b.dataset.sfile;
       if (name === '바탕글') delete b.dataset.style;
       else b.dataset.style = name;
     });

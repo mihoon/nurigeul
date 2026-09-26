@@ -202,6 +202,8 @@ body:not(.no-guides) #editor div.cols { outline: 1px dotted #b9c3dd; outline-off
 #editor [data-style="개요 5"] { margin-left: 40pt; }
 #editor [data-style="개요 6"] { margin-left: 50pt; }
 #editor [data-style="개요 7"] { margin-left: 60pt; }
+/* 불러온 문서의 스타일 이름: 모양은 문서에 적힌 값 그대로 */
+#editor [data-style][data-sfile] { font-size: inherit; font-weight: inherit; margin-left: 0; }
 #editor .align-distribute { text-align: justify; text-align-last: justify; }
 
 /* tables */

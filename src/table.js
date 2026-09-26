@@ -488,7 +488,7 @@ const Table = {
     }
     if (p.borders) this.applyBorders(p.borders);
     if (p.tableAlign) {
-      table.classList.remove('tbl-center', 'tbl-right');
+      table.classList.remove('tbl-center', 'tbl-right'); delete table.dataset.shift; table.style.marginLeft = '';
       if (p.tableAlign !== 'left') table.classList.add('tbl-' + p.tableAlign);
     }
   },

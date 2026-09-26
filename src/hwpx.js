@@ -178,6 +178,8 @@ const HWPX = (() => {
         return `<hp:pos treatAsChar="0" affectLSpacing="0" flowWithText="0" allowOverlap="1" holdAnchorAndSO="0" vertRelTo="PAPER" horzRelTo="PAPER" vertAlign="TOP" horzAlign="LEFT" vertOffset="${Math.max(0, U.px2hwp(vy))}" horzOffset="${Math.max(0, U.px2hwp(hx))}"/>`;
       }
       const inline = w === 'inline';
+      // 가로 위치를 옮긴 표 (불러온 문서): 글자처럼 취급하지 않고 단 왼쪽에서 떨어진 거리로
+      if (o.t === 'table' && inline && o.shift > 0) return `<hp:pos treatAsChar="0" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="${U.px2hwp(o.shift)}"/>`;
       const horz = { left: 'LEFT', right: 'RIGHT', center: 'CENTER' }[inline ? inlineAlign || 'left' : w] || 'LEFT';
       return `<hp:pos treatAsChar="${inline ? 1 : 0}" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="${horz}" vertOffset="0" horzOffset="0"/>`;
     }
@@ -499,7 +501,14 @@ const HWPX = (() => {
   }
 
   async function readHeader(root) {
-    const ctx = { fonts: {}, charPr: {}, paraPr: {}, borderFill: {}, styles: {}, tabPr: {} };
+    const ctx = { fonts: {}, charPr: {}, paraPr: {}, borderFill: {}, styles: {}, tabPr: {}, numberings: {}, bullets: {}, numState: {}, outlineId: '1' };
+    // 문단 번호 정의 (수준별 모양 "^1." 과 번호 형식)
+    desc(root, 'numbering').forEach((n) => {
+      const heads = {};
+      kids(n, 'paraHead').forEach((h) => { heads[num(h.getAttribute('level'), 1)] = { text: h.textContent || '', fmt: h.getAttribute('numFormat') || 'DIGIT', start: num(h.getAttribute('start'), 1) }; });
+      ctx.numberings[n.getAttribute('id')] = heads;
+    });
+    desc(root, 'bullet').forEach((b) => { ctx.bullets[b.getAttribute('id')] = b.getAttribute('char') || ''; });
     // 탭 정의 (hp:switch 안에 있으면 hp:case 값, 없으면 hp:default 값의 절반)
     const rT = Object.fromEntries(Object.entries(TabStops.HWP_TYPE).map(([k, v]) => [v, k]));
     const rL = Object.fromEntries(Object.entries(TabStops.HWP_LEADER).map(([k, v]) => [v, k]));
@@ -559,6 +568,7 @@ const HWPX = (() => {
         lsType: ls ? ls.getAttribute('type') : 'PERCENT', ls: ls ? num(ls.getAttribute('value'), 160) : 160,
         tabs: ctx.tabPr[p.getAttribute('tabPrIDRef')] || null,
         bf: (desc(p, 'border')[0] || { getAttribute: () => null }).getAttribute('borderFillIDRef'),
+        heading: (() => { const hd = kid(p, 'heading'); const t = hd && hd.getAttribute('type'); return t && t !== 'NONE' ? { type: t, id: hd.getAttribute('idRef'), level: num(hd.getAttribute('level'), 0) } : null; })(),
       };
     });
     desc(root, 'borderFill').forEach((b) => {
@@ -632,7 +642,8 @@ const HWPX = (() => {
     let attr = '';
     if (s.length) attr += ` style="${s.join(';')}"`;
     if (cls) attr += ` class="${cls}"`;
-    if (styleName && STYLES.includes(styleName) && styleName !== '바탕글') attr += ` data-style="${styleName}"`;
+    // 파일에서 온 스타일 이름은 이름만 기억 (누리글 스타일의 글자 크기·들여쓰기를 덧씌우지 않음)
+    if (styleName && STYLES.includes(styleName) && styleName !== '바탕글') attr += ` data-style="${styleName}" data-sfile=""`;
     if (pp && pp.tabs && pp.tabs.length) attr += ` data-tabs="${TabStops.serialize(pp.tabs)}"`;
     return attr;
   }
@@ -658,10 +669,18 @@ const HWPX = (() => {
       let hasContent = false;
       const out = [];
       const flushPara = (force) => {
-        if (hasContent || force) out.push(`<p${attrs}>${cur || '<br>'}</p>`);
+        if (hasContent || force) out.push(`<p${attrs}>${keepSpaces(cur) || '<br>'}</p>`);
         cur = ''; hasContent = false;
       };
       let lastCp = null;
+      // 문단 번호·글머리표: 번호를 글자로 넣음 (한글의 자동 번호 모양 그대로 보이게)
+      const head = headText(pp && pp.heading, ctx);
+      if (head) {
+        const r0 = kids(p, 'run')[0];
+        const css0 = charCss(r0 && ctx.charPr[r0.getAttribute('charPrIDRef')]);
+        cur += (css0 ? `<span style="${css0}">` : '') + escHtml(head) + '&nbsp;' + (css0 ? '</span>' : '');
+        hasContent = true;
+      }
       for (const run of kids(p, 'run')) {
         const cp = ctx.charPr[run.getAttribute('charPrIDRef')];
         lastCp = cp;
@@ -677,7 +696,7 @@ const HWPX = (() => {
           else if (n === 'lineBreak') { cur += '<br>'; hasContent = true; }
           else if (n === 'tbl') {
             flushPara(false);
-            out.push(tableHtml(node, ctx));
+            out.push(tableHtml(node, ctx, pp));
           } else if (n === 'pic') {
             cur += picHtml(node, ctx);
             hasContent = true;
@@ -718,6 +737,67 @@ const HWPX = (() => {
     });
     return html;
   }
+  // 번호 모양
+  function fmtNum(n, f) {
+    const cyc = (arr) => arr[(n - 1) % arr.length];
+    const circ = (base, max) => (n >= 1 && n <= max ? String.fromCharCode(base + n - 1) : String(n));
+    const roman = (v) => { let r = ''; for (const [a, b] of [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']]) while (v >= a) { r += b; v -= a; } return r; };
+    const latin = (v) => { let r = ''; while (v > 0) { v--; r = String.fromCharCode(65 + (v % 26)) + r; v = Math.floor(v / 26); } return r; };
+    if (n < 1) return String(n);
+    switch (f) {
+      case 'CIRCLED_DIGIT': return circ(0x2460, 20);
+      case 'ROMAN_CAPITAL': return roman(n);
+      case 'ROMAN_SMALL': return roman(n).toLowerCase();
+      case 'LATIN_CAPITAL': return latin(n);
+      case 'LATIN_SMALL': return latin(n).toLowerCase();
+      case 'CIRCLED_LATIN_CAPITAL': return circ(0x24B6, 26);
+      case 'CIRCLED_LATIN_SMALL': return circ(0x24D0, 26);
+      case 'HANGUL_SYLLABLE': return cyc('가나다라마바사아자차카타파하'.split(''));
+      case 'CIRCLED_HANGUL_SYLLABLE': return circ(0x326E, 14);
+      case 'HANGUL_JAMO': return cyc('ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎ'.split(''));
+      case 'CIRCLED_HANGUL_JAMO': return circ(0x3260, 14);
+      case 'HANGUL_PHONETIC': return n <= 10 ? '일이삼사오육칠팔구십'.split('')[n - 1] : String(n);
+      case 'IDEOGRAPH': return n <= 10 ? '一二三四五六七八九十'.split('')[n - 1] : String(n);
+      case 'CIRCLED_IDEOGRAPH': return circ(0x3280, 10);
+      default: return String(n);
+    }
+  }
+  // 문단 머리(번호/글머리표) 글자. 번호는 정의별·수준별로 세어 감
+  function headText(hd, ctx) {
+    if (!hd) return '';
+    if (hd.type === 'BULLET') {
+      let c = ctx.bullets[hd.id] || '•';
+      // 글꼴 전용 영역(기호 글꼴) 글자는 보통 글머리표로
+      if (/[\uE000-\uF8FF]/.test(c)) c = '•';
+      return c;
+    }
+    const id = hd.type === 'OUTLINE' ? ctx.outlineId : hd.id;
+    const heads = ctx.numberings[id];
+    if (!heads) return '';
+    const lv = Math.max(0, Math.min(9, hd.level)) + 1;   // 수준 1부터
+    const st = ctx.numState[id] || (ctx.numState[id] = {});
+    st[lv] = (st[lv] != null ? st[lv] : ((heads[lv] && heads[lv].start) || 1) - 1) + 1;
+    for (const k of Object.keys(st)) if (+k > lv) delete st[k];
+    const h = heads[lv];
+    if (!h || !h.text) return '';
+    return h.text.replace(/\^(\d)/g, (m, d) => {
+      const L = +d;
+      const v = st[L] != null ? st[L] : ((heads[L] && heads[L].start) || 1);
+      return fmtNum(v, (heads[L] && heads[L].fmt) || 'DIGIT');
+    });
+  }
+  // 한글처럼 띄어쓰기를 그대로 보이게: 문단 첫머리·줄바꿈 뒤·연달아 나온 띄어쓰기는 &nbsp;로 (HTML은 합쳐 버림)
+  function keepSpaces(html) {
+    let out = '', inTag = false, prevSp = true;
+    for (let i = 0; i < html.length; i++) {
+      const ch = html[i];
+      if (inTag) { out += ch; if (ch === '>') { inTag = false; if (/<br\s*\/?>$/i.test(out.slice(-6))) prevSp = true; } continue; }
+      if (ch === '<') { inTag = true; out += ch; continue; }
+      if (ch === ' ') { if (prevSp) { out += '&nbsp;'; prevSp = false; } else { out += ' '; prevSp = true; } continue; }
+      out += ch; prevSp = false;
+    }
+    return out;
+  }
   function textOf(t) {
     let s = '';
     for (const n of Array.from(t.childNodes)) {
@@ -727,7 +807,7 @@ const HWPX = (() => {
         if (ln === 'lineBreak') s += '<br>';
         else if (ln === 'tab') s += '\t';
         else if (ln === 'nbSpace') s += '&nbsp;';
-        else if (ln === 'fwSpace') s += '　';
+        else if (ln === 'fwSpace') s += '\u2002';
         else if (ln === 'hyphen') s += '-';
         else if (n.textContent) s += escHtml(n.textContent);
       }
@@ -735,6 +815,8 @@ const HWPX = (() => {
     return s;
   }
   function readSecPr(sp, ctx) {
+    const oid = sp.getAttribute('outlineShapeIDRef');
+    if (oid && oid !== '0') ctx.outlineId = oid;
     const sn = kid(sp, 'startNum');
     if (sn && ctx.pnStart == null) ctx.pnStart = num(sn.getAttribute('page'), 0);
     const pp = kid(sp, 'pagePr');
@@ -961,7 +1043,7 @@ const HWPX = (() => {
     const hs = kind === 'textbox' ? `min-height:${Math.round(hh)}px` : `height:${Math.round(hh)}px`;
     return `<span ${attrs.join(' ')}${extra}${lookAttrs(node, wrap, dt)} style="width:${Math.round(w)}px;${hs}">${body}</span>`;
   }
-  function tableHtml(tbl, ctx) {
+  function tableHtml(tbl, ctx, pp) {
     const rows = kids(tbl, 'tr');
     const nc = num(tbl.getAttribute('colCnt'), 0);
     const cells = [];
@@ -996,8 +1078,19 @@ const HWPX = (() => {
     const pos = kid(tbl, 'pos');
     const ha = pos ? pos.getAttribute('horzAlign') : 'LEFT';
     const tw2 = wrapOf(tbl, true);
-    const cls = !tw2.wrap && ha === 'CENTER' ? ' class="tbl-center"' : !tw2.wrap && ha === 'RIGHT' ? ' class="tbl-right"' : '';
-    let html = `<table${cls}${tw2.wrap ? ` data-wrap="${tw2.wrap}"` : ''}${tw2.extra}${lookAttrs(tbl, tw2.wrap, null, true)} style="width:${Math.round(widths.reduce((a, b) => a + b, 0))}px"><colgroup>${widths.map((w) => `<col style="width:${Math.round(w * 10) / 10}px">`).join('')}</colgroup><tbody>`;
+    // 표 가로 위치: 글자처럼 취급한 표는 그 문단의 정렬을, 아니면 가로 정렬·가로 위치 값을 따름
+    const asChar = pos && pos.getAttribute('treatAsChar') === '1';
+    let hAlign = asChar ? ({ CENTER: 'CENTER', RIGHT: 'RIGHT' }[pp && pp.align] || 'LEFT') : ha;
+    let shift = 0;
+    if (!asChar && !tw2.wrap && hAlign === 'LEFT' && pos) {
+      const off = U.hwp2px(num(pos.getAttribute('horzOffset'), 0));
+      const rel = pos.getAttribute('horzRelTo');
+      if (rel === 'PAGE' || rel === 'PAPER') shift = off - U.mm2px(ctx.page ? ctx.page.left || 0 : 0);
+      else shift = off;
+      shift = Math.max(0, Math.round(shift));
+    }
+    const cls = !tw2.wrap && hAlign === 'CENTER' ? ' class="tbl-center"' : !tw2.wrap && hAlign === 'RIGHT' ? ' class="tbl-right"' : '';
+    let html = `<table${cls}${tw2.wrap ? ` data-wrap="${tw2.wrap}"` : ''}${tw2.extra}${lookAttrs(tbl, tw2.wrap, null, true)} ${shift ? ` data-shift="${shift}"` : ''} style="width:${Math.round(widths.reduce((a, b) => a + b, 0))}px${shift ? `;margin-left:${shift}px` : ''}"><colgroup>${widths.map((w) => `<col style="width:${Math.round(w * 10) / 10}px">`).join('')}</colgroup><tbody>`;
     for (let r = 0; r < nrows; r++) {
       html += `<tr${heights[r] ? ` style="height:${Math.round(heights[r])}px"` : ''}>`;
       for (const c of cells.filter((x) => x.r === r).sort((a, b) => a.c - b.c)) {
