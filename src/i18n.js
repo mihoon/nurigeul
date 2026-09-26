@@ -93,6 +93,7 @@ const I18N = {
     '굵기는 mm로 직접 적거나 목록에서 고르고, 색은 #RRGGBB 또는 R,G,B로 적을 수 있습니다. 셀 블록(F5)이면 위·아래·왼쪽·오른쪽은 블록의 바깥 변, 안쪽 선은 블록 안의 선입니다. 굵기·색을 고치면 종류가 자동으로 실선이 됩니다.': 'Type a width in mm or pick one from the list; colors can be typed as #RRGGBB or R,G,B. With a cell block (F5), top/bottom/left/right are the block\'s outer edges and inner lines are the lines inside it. Changing width or color switches the type to solid automatically.',
     '세로 줄 전체를 선택했습니다.': 'Selected the whole column.', '가로 줄 전체를 선택했습니다.': 'Selected the whole row.',
     'HWP 문서를 HWPX로 바꾸는 중…': 'Converting HWP to HWPX…', '암호가 걸렸거나 배포용으로 만든 HWP 문서는 열 수 없습니다.': 'Password-protected or distribution-only HWP documents cannot be opened.', 'HWPX 열기/저장 · HWP 열기(HWPX로 변환) · DOCX/PDF 내보내기 · 표 · 그림 · 키 매크로 · 메일머지': 'HWPX open/save · HWP open (converted to HWPX) · DOCX/PDF export · Tables · Images · Key macros · Mail merge',
+    '장평 좁게': 'Narrower Width (Ratio)', '장평 넓게': 'Wider Width (Ratio)', '장평': 'Width ratio',
     '칸 블록 (네모 범위)': 'Column Block (Rectangle)', '칸 블록을 끝냈습니다.': 'Column block ended.',
     '칸 블록: 방향키·Shift+클릭으로 범위를 넓히세요. Ctrl+C 복사, Ctrl+X 오려 두기, Delete 지우기, Esc/F4 끝': 'Column block: extend with arrows or Shift+click. Ctrl+C copy, Ctrl+X cut, Delete delete, Esc/F4 end',
     '개체 묶기': 'Group Objects', '개체 풀기': 'Ungroup', '풀 묶음 개체를 선택하세요.': 'Select a group to ungroup.',
@@ -173,6 +174,8 @@ const I18N = {
   },
   // 문장 틀 (숫자 등이 들어가는 문구)
   rules: [
+    [/^장평 (\d+)%$/, 'Width ratio $1%'],
+    [/^자간 (-?\d+)%$/, 'Letter spacing $1%'],
     [/^(.+)을\(를\) HWPX로 바꿔 불러왔습니다\. 저장하면 HWPX 파일로 저장됩니다\.$/, '$1 was converted to HWPX and opened. Saving writes an HWPX file.'],
     [/^기본 글꼴을 (.+) ([\d.]+)pt로 정했습니다\.$/, 'Default font set to $1 $2pt.'],
     [/^(\d+)\/(\d+)쪽$/, 'Page $1/$2'],

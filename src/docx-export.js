@@ -75,6 +75,7 @@ const DocxExport = {
         subScript: r.sub || undefined,
         color: r.color ? r.color.replace('#', '') : undefined,
         characterSpacing: r.spacing ? Math.round((r.size || 10) * r.spacing / 100 * 20) : undefined,
+        scale: r.ratio && r.ratio !== 100 ? r.ratio : undefined,
       };
       if (r.border) o.border = { style: D.BorderStyle.SINGLE, size: 4, color: r.border.replace('#', ''), space: 1 };
       if (r.shade) o.shading = { type: D.ShadingType.CLEAR, fill: r.shade.replace('#', ''), color: 'auto' };

@@ -42,6 +42,7 @@ const HWPX = (() => {
         f: fontId(st.font), s: Math.round((st.size || 10) * 100), b: !!st.bold, i: !!st.italic, u: !!st.underline,
         x: !!st.strike, p: !!st.sup, d: !!st.sub, c: (st.color || '#000000').toUpperCase(), h: st.shade ? st.shade.toUpperCase() : 'none',
         sp: Math.max(-50, Math.min(50, Math.round(st.spacing || 0))),
+        rt: Math.max(50, Math.min(200, Math.round(st.ratio || 100))),
         sh: st.shadow ? st.shadow.toUpperCase() : null, ol: !!st.outline,
         bf: st.border ? bfId({ borders: Object.fromEntries(['top', 'right', 'bottom', 'left'].map((x) => [x, { style: 'solid', width: 1, color: st.border }])), bg: null }) : 2,
       };
@@ -360,7 +361,7 @@ const HWPX = (() => {
     const cpXml = [...charPrs.values()].map(({ id, k }) => {
       const all = (v) => `hangul="${v}" latin="${v}" hanja="${v}" japanese="${v}" other="${v}" symbol="${v}" user="${v}"`;
       return `<hh:charPr id="${id}" height="${k.s}" textColor="${k.c}" shadeColor="${k.h}" useFontSpace="0" useKerning="0" symMark="NONE" borderFillIDRef="${k.bf || 2}">`
-        + `<hh:fontRef ${all(k.f)}/><hh:ratio ${all(100)}/><hh:spacing ${all(k.sp)}/><hh:relSz ${all(100)}/><hh:offset ${all(0)}/>`
+        + `<hh:fontRef ${all(k.f)}/><hh:ratio ${all(k.rt || 100)}/><hh:spacing ${all(k.sp)}/><hh:relSz ${all(100)}/><hh:offset ${all(0)}/>`
         + (k.i ? '<hh:italic/>' : '') + (k.b ? '<hh:bold/>' : '')
         + `<hh:underline type="${k.u ? 'BOTTOM' : 'NONE'}" shape="SOLID" color="${k.c}"/>`
         + `<hh:strikeout shape="${k.x ? 'SOLID' : 'NONE'}" color="${k.c}"/>`
@@ -533,6 +534,7 @@ const HWPX = (() => {
         strike: !!so && so.getAttribute('shape') && so.getAttribute('shape') !== 'NONE',
         sup: !!kid(c, 'supscript'), sub: !!kid(c, 'subscript'),
         spacing: sp ? num(sp.getAttribute('hangul')) : 0,
+        ratio: (() => { const r = kid(c, 'ratio'); return r ? num(r.getAttribute('hangul'), 100) : 100; })(),
         outline: (() => { const o = kid(c, 'outline'); return !!o && o.getAttribute('type') && o.getAttribute('type') !== 'NONE'; })(),
         shadow: (() => { const o = kid(c, 'shadow'); return o && o.getAttribute('type') && o.getAttribute('type') !== 'NONE' ? o.getAttribute('color') || '#999999' : null; })(),
         bfRef: c.getAttribute('borderFillIDRef'),
@@ -603,6 +605,7 @@ const HWPX = (() => {
       s.push(`vertical-align:${cp.sup ? 'super' : 'sub'};font-size:${Math.round((cp.size || 10) * 0.7 * 2) / 2}pt`);
     }
     if (cp.spacing) s.push(`letter-spacing:${cp.spacing / 100}em`);
+    if (cp.ratio && cp.ratio !== 100) s.push(`--hr:${Math.max(50, Math.min(200, cp.ratio))}`);
     if (cp.shadow) s.push(`text-shadow:0.08em 0.08em 0 ${cp.shadow}`);
     if (cp.outline) s.push('-webkit-text-stroke:0.035em currentColor;-webkit-text-fill-color:transparent');
     if (cp.border) s.push(`border:1px solid ${cp.border};padding:0 1px;box-decoration-break:clone`);

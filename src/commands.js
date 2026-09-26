@@ -104,6 +104,8 @@ const Commands = (() => {
   def('서식', 'size-up', '글자 크게', { keys: ['Alt+Shift+E'], run: () => Fmt.sizeStep(1) });
   def('서식', 'size-down', '글자 작게', { keys: ['Alt+Shift+R'], run: () => Fmt.sizeStep(-1) });
   def('서식', 'spacing-wide', '자간 넓게', { keys: ['Alt+Shift+W'], run: () => Fmt.spacingStep(1) });
+  def('서식', 'ratio-narrow', '장평 좁게', { keys: ['Alt+Shift+J'], run: () => Ratio.step(-1) });
+  def('서식', 'ratio-wide', '장평 넓게', { keys: ['Alt+Shift+K'], run: () => Ratio.step(1) });
   def('서식', 'spacing-narrow', '자간 좁게', { keys: ['Alt+Shift+N'], run: () => Fmt.spacingStep(-1) });
   def('서식', 'lh-up', '줄 간격 넓게', { keys: ['Alt+Shift+Z'], run: () => Fmt.lineHeightStep(10) });
   def('서식', 'lh-down', '줄 간격 좁게', { keys: ['Alt+Shift+A'], run: () => Fmt.lineHeightStep(-10) });

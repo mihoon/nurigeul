@@ -141,6 +141,7 @@ const Model = {
       color: cssColorToHex(cs.color) || '#000000',
       shade: bgOf(el),
       spacing: letterSpacingPct(el),
+      ratio: Math.round(Ratio.of(el)),
       ...charEffects(el),
     };
   },
@@ -242,6 +243,6 @@ const Model = {
 };
 
 function sameStyle(a, b) {
-  const keys = ['font', 'size', 'bold', 'italic', 'underline', 'strike', 'sup', 'sub', 'color', 'shade', 'spacing', 'shadow', 'outline', 'border'];
+  const keys = ['font', 'size', 'bold', 'italic', 'underline', 'strike', 'sup', 'sub', 'color', 'shade', 'spacing', 'ratio', 'shadow', 'outline', 'border'];
   return keys.every((k) => a[k] === b[k]);
 }

@@ -96,6 +96,8 @@ body.show-marks #marks, body.show-paramarks #marks { display: block; }
 #editor h1, #editor h2, #editor h3 { margin: 0; }
 #editor ul, #editor ol { margin: 0; padding-left: 2em; }
 #editor li::marker { font-family: inherit; }
+@property --hr { syntax: '<number>'; inherits: true; initial-value: 100; }
+#editor span.rw { display: inline-block; transform: scaleX(calc(var(--hr) / 100)); transform-origin: 0 50%; text-indent: 0; }
 #editor li.nonum { list-style-type: none !important; counter-increment: list-item 0; }
 #editor ol { list-style-type: nr-decimal-dot; }
 #editor ol ol, #editor ul ol { list-style-type: nr-hangul-dot; }

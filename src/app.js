@@ -33,6 +33,7 @@ const App = {
     TabStops.init();
     ColBlock.init();
     HF.init();
+    Ratio.init();
     Marks.updateSoon = debounce(() => Marks.update(), 150);
     Ruler.init();
     await Macro.load();
@@ -421,6 +422,7 @@ const App = {
   },
   layout() {
     this.applyBaseFont();
+    Ratio.render();
     Lists.syncMarkers();
     TabStops.layoutAll();
     const p = this.page;
@@ -778,6 +780,9 @@ App.bindEvents = function () {
         n.nodeValue = n.nodeValue.replace(/\u200B/g, '');
         s.collapse(n, Math.max(0, off - removedBefore));
       }
+      // 장평 문단: 띄어쓰기로 낱말이 나뉘면 바로 상자를 다시 짬 (줄바꿈이 낱말 사이에서 되도록)
+      const b = Sel.block();
+      if (b && !MultiSel.active && b.querySelector('span.rw, [style*="--hr"]')) Ratio.render(b);
     }
     App.changed();
   });
@@ -1030,7 +1035,12 @@ App.onKeyDown = function (e) {
   // ----- 블록 설정(F3) 상태: 방향키로 범위 넓히기 -----
   if (App.blockMode) {
     const navMap = { Left: ['backward', 'character'], Right: ['forward', 'character'], Up: ['backward', 'line'], Down: ['forward', 'line'], Home: ['backward', 'lineboundary'], End: ['forward', 'lineboundary'], 'Ctrl+Left': ['backward', 'word'], 'Ctrl+Right': ['forward', 'word'], PageDown: ['forward', 'paragraph'], PageUp: ['backward', 'paragraph'] };
-    if (navMap[k]) { stop(); window.getSelection().modify('extend', ...navMap[k]); return; }
+    if (navMap[k]) {
+      stop();
+      const rk = { Up: () => Ratio.lineMove(false, true), Down: () => Ratio.lineMove(true, true), Home: () => Ratio.lineEdge(false, true), End: () => Ratio.lineEdge(true, true) }[k];
+      if (!(rk && rk())) window.getSelection().modify('extend', ...navMap[k]);
+      return;
+    }
     if (k === 'Escape' || k === 'F3') { stop(); App.toggleBlockMode(false); if (k === 'Escape') window.getSelection().collapseToEnd(); return; }
     App.toggleBlockMode(false);
   }
@@ -1143,7 +1153,7 @@ const MENUS = [
   { name: '편집', key: 'E', items: ['undo', 'redo', '-', 'cut', 'copy', 'paste', 'paste-text', '-', 'select-all', 'block', 'col-block', 'caret-add-up', 'caret-add-down', '-', 'delete-line', 'delete-eol', 'delete-word', '-', 'find', 'replace', 'find-next', 'goto', '-', 'shape-copy'] },
   { name: '보기', key: 'U', items: ['toggle-guides', 'toggle-paramarks', 'toggle-marks', 'toggle-hruler', 'toggle-vruler', '-', 'split-v', 'split-h', 'split-off', '-', 'lang-ko', 'lang-en', '-', 'zoom-in', 'zoom-out', 'zoom-100', 'zoom-width'] },
   { name: '입력', key: 'D', items: ['table-create', 'image-insert', 'textbox', '-', 'shape-line', 'shape-arrow', 'shape-darrow', 'shape-rect', 'shape-roundrect', 'shape-ellipse', 'shape-triangle', '-', 'wrap-inline', 'wrap-left', 'wrap-right', 'wrap-front', 'wrap-behind', 'object-props', 'shape-text', 'obj-group', 'obj-ungroup', '-', 'page-break', 'symbols', 'date-insert', 'link', '-', 'mm-mark'] },
-  { name: '서식', key: 'J', items: ['char-shape', 'para-shape', 'tab-dialog', 'style-dlg', '-', 'bold', 'italic', 'underline', 'strike', 'sup', 'sub', 'normal-char', '-', 'size-up', 'size-down', 'spacing-wide', 'spacing-narrow', 'lh-up', 'lh-down', '-', 'align-justify', 'align-left', 'align-center', 'align-right', 'align-distribute', '-', 'indent-first', 'outdent-first', 'margin-inc', 'margin-dec', '-', 'numbering', 'numbering-shape', 'num-restart', 'bullets', 'bullet-shape', 'list-deeper', 'list-shallower'] },
+  { name: '서식', key: 'J', items: ['char-shape', 'para-shape', 'tab-dialog', 'style-dlg', '-', 'bold', 'italic', 'underline', 'strike', 'sup', 'sub', 'normal-char', '-', 'size-up', 'size-down', 'spacing-wide', 'spacing-narrow', 'ratio-wide', 'ratio-narrow', 'lh-up', 'lh-down', '-', 'align-justify', 'align-left', 'align-center', 'align-right', 'align-distribute', '-', 'indent-first', 'outdent-first', 'margin-inc', 'margin-dec', '-', 'numbering', 'numbering-shape', 'num-restart', 'bullets', 'bullet-shape', 'list-deeper', 'list-shallower'] },
   { name: '쪽', key: 'W', items: ['page-setup', 'page-break', '-', 'columns', 'col-break', '-', 'page-number', 'page-newnum', 'page-hide', 'header-footer'] },
   { name: '표', key: 'B', items: ['table-create', '-', 'cell-block', 'row-col-insert', 'row-add', 'col-add', 'row-col-delete', '-', 'cell-merge', 'cell-split', 'cell-props', 'equal-width', 'equal-height', '-', 'table-props', 'wrap-inline', 'wrap-left', 'wrap-right', 'wrap-front', 'wrap-behind', '-', 'table-delete'] },
   { name: '도구', key: 'K', items: ['macro-record', 'macro-run', '-', 'mm-mark', 'mm-make', 'mm-datadoc', '-', 'default-font', 'shortcuts', 'about'] },

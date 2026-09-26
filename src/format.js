@@ -34,6 +34,7 @@ const Fmt = {
       lineHeight: lineHeightPct(block),
       style: block ? (block.dataset.style || '바탕글') : '바탕글',
       letterSpacing: letterSpacingPct(el),
+      ratio: Math.round(Ratio.of(el)),
       ...charEffects(el),
     };
   },
@@ -109,6 +110,7 @@ const Fmt = {
     if (st.strike) this.exec('strikeThrough');
     if (st.sup) this.exec('superscript');
     if (st.sub) this.exec('subscript');
+    if (st.ratio !== 100 || st.letterSpacing) { this.styleSpans(() => ({ '--hr': '', letterSpacing: '' })); Ratio.render(); }
   },
   color(c) { this.exec('foreColor', c); this.fieldsInSel().forEach((f) => (f.style.color = c)); },
   highlight(c) { this.exec('hiliteColor', c || 'transparent'); this.fieldsInSel().forEach((f) => (f.style.backgroundColor = c && c !== 'transparent' ? c : '')); },
@@ -128,11 +130,14 @@ const Fmt = {
     });
   },
   spacingStep(delta) {
+    let shown = null;
     this.styleSpans((el) => {
       const cur = letterSpacingPct(el);
       const next = Math.max(-50, Math.min(50, cur + delta));
+      shown = next;
       return { letterSpacing: next ? (next / 100) + 'em' : '' };
     });
+    if (shown != null) status(`자간 ${shown}%`);
   },
   applyCharProps(p) {
     // 글자 모양 대화상자 결과 적용
@@ -142,6 +147,7 @@ const Fmt = {
     if (p.font) styles.fontFamily = fontStack(p.font);
     if (p.size) styles.fontSize = p.size + 'pt';
     if (p.letterSpacing != null) styles.letterSpacing = +p.letterSpacing ? (+p.letterSpacing / 100) + 'em' : '';
+    if (p.ratio != null && Math.round(+p.ratio) !== st.ratio) { const v = Math.max(50, Math.min(200, Math.round(+p.ratio) || 100)); styles['--hr'] = v === 100 ? '' : String(v); }
     if (Object.keys(styles).length) this.styleSpans(() => styles);
     for (const k of ['bold', 'italic', 'underline', 'strike', 'sup', 'sub']) {
       if (p[k] != null && !!p[k] !== !!Fmt.state()[k]) this.toggle(k);
@@ -158,6 +164,7 @@ const Fmt = {
       fx.boxDecorationBreak = p.border ? 'clone' : '';
     }
     if (Object.keys(fx).length) this.styleSpans(() => fx);
+    Ratio.render();
   },
 
   // 선택된 텍스트에 span 스타일 적용 (접힌 선택이면 입력용 span 생성)
@@ -175,7 +182,7 @@ const Fmt = {
       }
       const st0 = styleFn(basis);
       if ('$base' in st0) { if (st0.$base == null) delete span.dataset.baseSize; else span.dataset.baseSize = st0.$base; delete st0.$base; }
-      Object.assign(span.style, st0);
+      setStyles(span, st0);
       const nr = document.createRange();
       nr.setStart(span.firstChild, 1);
       nr.collapse(true);
@@ -194,7 +201,12 @@ const Fmt = {
       const field = parent.closest('.mm-field');
       let target;
       if (field) target = field;
-      else if (parent.tagName === 'SPAN' && parent.childNodes.length === 1) target = parent;
+      else if (parent.classList.contains('rw') && parent.childNodes.length === 1) {
+        // 장평 낱말 상자: 상자는 그대로 두고 바깥 span에 서식 (감싼 span이 이 상자만 품고 있으면 그것을 씀)
+        const pp = parent.parentElement;
+        if (pp && pp.tagName === 'SPAN' && pp.childNodes.length === 1 && !pp.closest('.mm-field')) target = pp;
+        else { target = h('span'); parent.before(target); target.append(parent); }
+      } else if (parent.tagName === 'SPAN' && parent.childNodes.length === 1) target = parent;
       else {
         target = h('span');
         t.parentNode.insertBefore(target, t);
@@ -207,16 +219,16 @@ const Fmt = {
         delete st.$base;
       }
       for (const [k, v] of Object.entries(st)) {
-        target.style[k] = v;
+        setStyles(target, { [k]: v });
         // 하위 요소의 같은 속성 제거 (덮어쓰기)
-        target.querySelectorAll('*').forEach((d) => { if (d.style) d.style[k] = ''; });
+        target.querySelectorAll('*').forEach((d) => { if (d.style) setStyles(d, { [k]: '' }); });
       }
       if (!first) first = target;
       last = target;
     }
     const nr = document.createRange();
-    nr.setStartBefore(first);
-    nr.setEndAfter(last);
+    nr.setStart(first, 0);
+    nr.setEnd(last, last.childNodes.length);
     Sel.set(nr);
   },
 
@@ -456,6 +468,13 @@ function lineHeightPct(block) {
     if (e === Sel.editor) break;
   }
   return 160;
+}
+// style 적용 (--로 시작하는 사용자 속성도)
+function setStyles(el, obj) {
+  for (const [k, v] of Object.entries(obj)) {
+    if (k.startsWith('--')) { if (v === '' || v == null) el.style.removeProperty(k); else el.style.setProperty(k, v); }
+    else el.style[k] = v;
+  }
 }
 function letterSpacingPct(el) {
   const cs = getComputedStyle(el);
