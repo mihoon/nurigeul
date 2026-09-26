@@ -1,0 +1,790 @@
+// 표 기능: 만들기, 줄/칸 추가·삭제, 셀 합치기/나누기, 셀 블록(F5), 크기 조절
+'use strict';
+const Table = {
+  // ---------- 격자 모델 ----------
+  grid(table) {
+    const trs = rowsOf(table);
+    const cells = [];
+    const occ = [];
+    trs.forEach((tr, r) => {
+      let c = 0;
+      for (const td of Array.from(tr.cells)) {
+        occ[r] = occ[r] || [];
+        while (occ[r][c]) c++;
+        const rs = Math.max(1, td.rowSpan || 1), cs = Math.max(1, td.colSpan || 1);
+        const cell = { el: td, r, c, rs, cs };
+        cells.push(cell);
+        for (let i = r; i < r + rs; i++) {
+          occ[i] = occ[i] || [];
+          for (let j = c; j < c + cs; j++) occ[i][j] = cell;
+        }
+        c += cs;
+      }
+    });
+    const nr = Math.max(trs.length, occ.length);
+    let nc = 0;
+    occ.forEach((row) => { if (row) nc = Math.max(nc, row.length); });
+    const widths = colWidths(table, nc);
+    const heights = trs.map((tr) => parseFloat(tr.style.height) || 0);
+    return { table, cells, nr, nc, widths, heights };
+  },
+  cellAt(g, r, c) {
+    return g.cells.find((x) => r >= x.r && r < x.r + x.rs && c >= x.c && c < x.c + x.cs) || null;
+  },
+  rebuild(g) {
+    const { table } = g;
+    // 빈 구멍 채우기
+    for (let r = 0; r < g.nr; r++) for (let c = 0; c < g.nc; c++) {
+      if (!this.cellAt(g, r, c)) g.cells.push({ el: newCell(), r, c, rs: 1, cs: 1 });
+    }
+    let tbody = table.tBodies[0];
+    Array.from(table.querySelectorAll(':scope > tr, :scope > thead, :scope > tfoot')).forEach((x) => x.remove());
+    if (!tbody) { tbody = h('tbody'); table.append(tbody); }
+    Array.from(table.tBodies).slice(1).forEach((b) => b.remove());
+    tbody.innerHTML = '';
+    const trs = [];
+    for (let r = 0; r < g.nr; r++) {
+      const tr = h('tr');
+      if (g.heights[r]) tr.style.height = g.heights[r] + 'px';
+      trs.push(tr);
+      tbody.append(tr);
+    }
+    g.cells.sort((a, b) => a.r - b.r || a.c - b.c);
+    for (const x of g.cells) {
+      x.el.rowSpan = x.rs;
+      x.el.colSpan = x.cs;
+      if (x.rs === 1) x.el.removeAttribute('rowspan');
+      if (x.cs === 1) x.el.removeAttribute('colspan');
+      trs[x.r].append(x.el);
+    }
+    setColWidths(table, g.widths);
+  },
+
+  // ---------- 만들기 ----------
+  create(rows, cols, opts = {}) {
+    rows = Math.max(1, Math.min(500, rows | 0));
+    cols = Math.max(1, Math.min(60, cols | 0));
+    const inCell = Sel.closest('td');
+    const avail = inCell ? Math.max(60, inCell.clientWidth - 16) : App.contentWidth();
+    const total = opts.width || avail;
+    const w = Math.floor(total / cols);
+    const table = h('table');
+    const g = { table, cells: [], nr: rows, nc: cols, widths: Array(cols).fill(w), heights: Array(rows).fill(0) };
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) g.cells.push({ el: newCell(), r, c, rs: 1, cs: 1 });
+    this.rebuild(g);
+    if (opts.header) g.cells.filter((x) => x.r === 0).forEach((x) => { x.el.style.backgroundColor = '#e8edf5'; x.el.firstChild.style.textAlign = 'center'; });
+    insertBlockAtCaret(table);
+    Sel.caretInto(table.rows[0].cells[0].firstChild);
+    return table;
+  },
+
+  current() { return Sel.closest('table'); },
+  currentCell() { return Sel.closest('td, th'); },
+
+  // ---------- 줄/칸 ----------
+  insertRow(below = true, count = 1) {
+    const td = this.currentCell() || (this.block && this.block.cells()[0]);
+    if (!td) return false;
+    const table = td.closest('table');
+    for (let n = 0; n < count; n++) {
+      const g = this.grid(table);
+      const cur = g.cells.find((x) => x.el === td);
+      const k = below ? cur.r + cur.rs : cur.r;
+      for (const x of g.cells) {
+        if (x.r < k && k < x.r + x.rs) x.rs++;
+        else if (x.r >= k) x.r++;
+      }
+      g.nr++;
+      g.heights.splice(k, 0, 0);
+      this.rebuild(g);
+    }
+    return true;
+  },
+  insertCol(right = true, count = 1) {
+    const td = this.currentCell();
+    if (!td) return false;
+    const table = td.closest('table');
+    for (let n = 0; n < count; n++) {
+      const g = this.grid(table);
+      const cur = g.cells.find((x) => x.el === td);
+      const k = right ? cur.c + cur.cs : cur.c;
+      for (const x of g.cells) {
+        if (x.c < k && k < x.c + x.cs) x.cs++;
+        else if (x.c >= k) x.c++;
+      }
+      g.nc++;
+      const refW = g.widths[Math.min(right ? k - 1 : k, g.widths.length - 1)] || 60;
+      g.widths.splice(k, 0, refW);
+      fitWidths(g, table);
+      this.rebuild(g);
+    }
+    return true;
+  },
+  deleteRow() {
+    const sel = this.block && this.block.active() ? this.block.rect() : null;
+    const td = this.currentCell();
+    if (!td && !sel) return false;
+    const table = sel ? this.block.table : td.closest('table');
+    const g0 = this.grid(table);
+    let r1, r2;
+    if (sel) { r1 = sel.r1; r2 = sel.r2; }
+    else { const cur = g0.cells.find((x) => x.el === td); r1 = cur.r; r2 = cur.r; }
+    this.block.clear();
+    for (let k = r2; k >= r1; k--) {
+      const g = this.grid(table);
+      if (g.nr <= 1) { this.remove(table); return true; }
+      g.cells = g.cells.filter((x) => {
+        if (x.r <= k && k < x.r + x.rs) {
+          if (x.rs > 1) { x.rs--; return true; }
+          return false;
+        }
+        if (x.r > k) x.r--;
+        return true;
+      });
+      g.nr--;
+      g.heights.splice(k, 1);
+      this.rebuild(g);
+    }
+    const first = table.querySelector('td p, td');
+    if (first) Sel.caretInto(first);
+    return true;
+  },
+  deleteCol() {
+    const sel = this.block && this.block.active() ? this.block.rect() : null;
+    const td = this.currentCell();
+    if (!td && !sel) return false;
+    const table = sel ? this.block.table : td.closest('table');
+    const g0 = this.grid(table);
+    let c1, c2;
+    if (sel) { c1 = sel.c1; c2 = sel.c2; }
+    else { const cur = g0.cells.find((x) => x.el === td); c1 = cur.c; c2 = cur.c; }
+    this.block.clear();
+    for (let k = c2; k >= c1; k--) {
+      const g = this.grid(table);
+      if (g.nc <= 1) { this.remove(table); return true; }
+      g.cells = g.cells.filter((x) => {
+        if (x.c <= k && k < x.c + x.cs) {
+          if (x.cs > 1) { x.cs--; return true; }
+          return false;
+        }
+        if (x.c > k) x.c--;
+        return true;
+      });
+      g.nc--;
+      g.widths.splice(k, 1);
+      this.rebuild(g);
+    }
+    const first = table.querySelector('td p, td');
+    if (first) Sel.caretInto(first);
+    return true;
+  },
+  remove(table) {
+    table = table || this.current();
+    if (!table) return;
+    this.block.clear();
+    const p = h('p', {}, h('br'));
+    table.replaceWith(p);
+    Sel.caretInto(p);
+    Para.ensure();
+  },
+
+  // ---------- 합치기 / 나누기 ----------
+  merge() {
+    if (!this.block.active()) { status('셀 블록(F5)을 먼저 지정하세요.'); return false; }
+    const table = this.block.table;
+    const g = this.grid(table);
+    const rc = expandRect(g, this.block.rect());
+    const anchor = this.cellAt(g, rc.r1, rc.c1);
+    const inside = g.cells.filter((x) => x !== anchor && x.r >= rc.r1 && x.r <= rc.r2 && x.c >= rc.c1 && x.c <= rc.c2);
+    const anchorEmpty = () => !anchor.el.textContent.trim() && !anchor.el.querySelector('img,table,.nobj');
+    for (const x of inside) {
+      const has = x.el.textContent.trim() || x.el.querySelector('img,table,.nobj');
+      if (has) {
+        if (anchorEmpty()) anchor.el.innerHTML = '';
+        while (x.el.firstChild) anchor.el.append(x.el.firstChild);
+      }
+    }
+    g.cells = g.cells.filter((x) => !inside.includes(x));
+    anchor.rs = rc.r2 - rc.r1 + 1;
+    anchor.cs = rc.c2 - rc.c1 + 1;
+    this.rebuild(g);
+    this.block.clear();
+    Sel.caretInto(anchor.el.firstElementChild || anchor.el);
+    return true;
+  },
+  split(nRows, nCols) {
+    const td = this.block.active() ? this.block.cells()[0] : this.currentCell();
+    if (!td) return false;
+    const table = td.closest('table');
+    nRows = Math.max(1, nRows | 0); nCols = Math.max(1, nCols | 0);
+    let g = this.grid(table);
+    let cur = g.cells.find((x) => x.el === td);
+    // 필요한 만큼 격자 칸 추가
+    if (nCols > cur.cs) {
+      const extra = nCols - cur.cs;
+      const k = cur.c + cur.cs; // 마지막 칸 뒤
+      const lastW = g.widths[k - 1];
+      for (const x of g.cells) {
+        if (x === cur) continue;
+        if (x.c < k && k <= x.c + x.cs - 0 && x.c + x.cs >= k && x.c <= k - 1) x.cs += extra; // 같은 칸을 덮는 셀 확장
+        else if (x.c >= k) x.c += extra;
+      }
+      const piece = lastW / (extra + 1);
+      g.widths.splice(k - 1, 1, ...Array(extra + 1).fill(piece));
+      cur.cs += extra;
+      g.nc += extra;
+    }
+    if (nRows > cur.rs) {
+      const extra = nRows - cur.rs;
+      const k = cur.r + cur.rs;
+      for (const x of g.cells) {
+        if (x === cur) continue;
+        if (x.r <= k - 1 && x.r + x.rs >= k) x.rs += extra;
+        else if (x.r >= k) x.r += extra;
+      }
+      g.heights.splice(k, 0, ...Array(extra).fill(0));
+      cur.rs += extra;
+      g.nr += extra;
+    }
+    // 영역을 nRows × nCols 로 분배
+    const rParts = distribute(cur.rs, nRows), cParts = distribute(cur.cs, nCols);
+    const baseR = cur.r, baseC = cur.c;
+    g.cells = g.cells.filter((x) => x !== cur);
+    let rr = baseR;
+    rParts.forEach((rs, i) => {
+      let cc = baseC;
+      cParts.forEach((cs, j) => {
+        const el = i === 0 && j === 0 ? td : newCell(td);
+        g.cells.push({ el, r: rr, c: cc, rs, cs });
+        cc += cs;
+      });
+      rr += rs;
+    });
+    this.rebuild(g);
+    this.block.clear();
+    Sel.caretInto(td.firstElementChild || td);
+    return true;
+  },
+
+  // ---------- 크기 ----------
+  equalWidths() {
+    const table = this.block.active() ? this.block.table : this.current();
+    if (!table) return;
+    const g = this.grid(table);
+    const rc = this.block.active() ? this.block.rect() : { c1: 0, c2: g.nc - 1 };
+    const sum = g.widths.slice(rc.c1, rc.c2 + 1).reduce((a, b) => a + b, 0);
+    const w = sum / (rc.c2 - rc.c1 + 1);
+    for (let c = rc.c1; c <= rc.c2; c++) g.widths[c] = w;
+    setColWidths(table, g.widths);
+  },
+  equalHeights() {
+    const table = this.block.active() ? this.block.table : this.current();
+    if (!table) return;
+    const trs = rowsOf(table);
+    const rc = this.block.active() ? this.block.rect() : { r1: 0, r2: trs.length - 1 };
+    const hs = trs.slice(rc.r1, rc.r2 + 1).map((tr) => tr.getBoundingClientRect().height / App.zoom);
+    const m = Math.max(...hs);
+    trs.slice(rc.r1, rc.r2 + 1).forEach((tr) => (tr.style.height = Math.round(m) + 'px'));
+  },
+  resizeCols(dx) {
+    const table = this.block.active() ? this.block.table : this.current();
+    if (!table) return;
+    const g = this.grid(table);
+    let c1, c2;
+    if (this.block.active()) ({ c1, c2 } = this.block.rect());
+    else { const cur = g.cells.find((x) => x.el === this.currentCell()); c1 = cur.c; c2 = cur.c + cur.cs - 1; }
+    for (let c = c1; c <= c2; c++) g.widths[c] = Math.max(12, g.widths[c] + dx);
+    setColWidths(table, g.widths);
+  },
+  resizeRows(dy) {
+    const table = this.block.active() ? this.block.table : this.current();
+    if (!table) return;
+    const trs = rowsOf(table);
+    const g = this.grid(table);
+    let r1, r2;
+    if (this.block.active()) ({ r1, r2 } = this.block.rect());
+    else { const cur = g.cells.find((x) => x.el === this.currentCell()); r1 = cur.r; r2 = cur.r + cur.rs - 1; }
+    for (let r = r1; r <= r2; r++) {
+      const cur = trs[r].getBoundingClientRect().height / App.zoom;
+      trs[r].style.height = Math.max(10, Math.round(cur + dy)) + 'px';
+    }
+  },
+
+  // Alt+방향키: 표 전체 크기는 그대로, 선택한 칸/줄만 커지고 이웃이 줄어듦
+  resizeKeep(dx, dy) {
+    if (!this.block.active()) return;
+    const table = this.block.table;
+    const g = this.grid(table);
+    const rc = this.block.rect();
+    const MIN = 12;
+    if (dx) {
+      const w = g.widths.slice();
+      if (rc.c2 + 1 < g.nc) {
+        const d = Math.max(-(w[rc.c2] - MIN), Math.min(dx, w[rc.c2 + 1] - MIN));
+        w[rc.c2] += d; w[rc.c2 + 1] -= d;
+      } else if (rc.c1 > 0) {
+        const d = Math.max(-(w[rc.c1] - MIN), Math.min(dx, w[rc.c1 - 1] - MIN));
+        w[rc.c1] += d; w[rc.c1 - 1] -= d;
+      } else { status('표 전체가 선택되어 있어 크기를 나눌 칸이 없습니다.'); return; }
+      setColWidths(table, w);
+    }
+    if (dy) {
+      const trs = rowsOf(table);
+      const hs = trs.map((tr) => tr.getBoundingClientRect().height / App.zoom);
+      let a = rc.r2, b = rc.r2 + 1;
+      if (b >= trs.length) { a = rc.r1; b = rc.r1 - 1; }
+      if (b < 0) { status('표 전체가 선택되어 있어 크기를 나눌 줄이 없습니다.'); return; }
+      const d = Math.max(-(hs[a] - 10), Math.min(dy, hs[b] - 10));
+      trs[a].style.height = Math.round(hs[a] + d) + 'px';
+      trs[b].style.height = Math.round(hs[b] - d) + 'px';
+    }
+  },
+
+  // Shift+방향키: 선택한 셀만 크기 바꾸기 (같은 칸/줄의 다른 셀은 그대로)
+  resizeCellsOnly(dx, dy) {
+    if (!this.block.active()) return;
+    const table = this.block.table;
+    const g = this.grid(table);
+    const sel = new Set(this.block.cells());
+    const trs = rowsOf(table);
+    const hs = trs.map((tr) => Math.max(parseFloat(tr.style.height) || 0, tr.getBoundingClientRect().height / App.zoom));
+    const X = [0]; g.widths.forEach((w, i) => X.push(X[i] + w));
+    const Y = [0]; for (let i = 0; i < g.nr; i++) Y.push(Y[i] + (hs[i] || 20));
+    const geo = g.cells.map((c) => ({ el: c.el, x0: X[c.c], x1: X[c.c + c.cs], y0: Y[c.r], y1: Y[c.r + c.rs] }));
+    const MIN = 10;
+    const overlap = (a0, a1, b0, b1) => a0 < b1 - 0.5 && b0 < a1 - 0.5;
+    const selGeo = geo.filter((q) => sel.has(q.el));
+    const move = (axis, d) => {
+      const [p0, p1, q0, q1] = axis === 'x' ? ['x0', 'x1', 'y0', 'y1'] : ['y0', 'y1', 'x0', 'x1'];
+      // 선택 셀의 뒤쪽 경계와 맞닿은 이웃
+      const changes = [];
+      for (const s of selGeo) {
+        const nb = geo.filter((n) => !sel.has(n.el) && Math.abs(n[p0] - s[p1]) < 0.5 && overlap(n[q0], n[q1], s[q0], s[q1]));
+        if (!nb.length) return '표 가장자리에 있는 셀은 셀만 따로 크기를 바꿀 수 없습니다. Ctrl+방향키를 쓰세요.';
+        for (const n of nb) {
+          // 이웃이 선택 영역 밖 줄/칸까지 걸쳐 있으면 불가
+          const covered = selGeo.filter((t) => Math.abs(t[p1] - s[p1]) < 0.5).reduce((acc, t) => { acc.push([t[q0], t[q1]]); return acc; }, []);
+          const inside = covered.some(([a, b]) => n[q0] >= a - 0.5 && n[q1] <= b + 0.5) || covered.reduce((lo, [a]) => Math.min(lo, a), Infinity) <= n[q0] + 0.5 && covered.reduce((hi, [, b]) => Math.max(hi, b), -Infinity) >= n[q1] - 0.5;
+          if (!inside) return '합쳐진 이웃 셀 때문에 이 셀만 크기를 바꿀 수 없습니다.';
+          if (n[p1] - (n[p0] + d) < MIN) return null;
+          changes.push(() => { n[p0] += d; });
+        }
+        if (s[p1] + d - s[p0] < MIN) return null;
+        changes.push(() => { s[p1] += d; });
+      }
+      changes.forEach((f) => f());
+      return true;
+    };
+    const res = dx ? move('x', dx) : move('y', dy);
+    if (res !== true) { if (res) status(res); return; }
+    // 새 경계로 격자 다시 만들기
+    const uniq = (arr) => Array.from(new Set(arr.map((v) => Math.round(v * 10) / 10))).sort((a, b) => a - b);
+    const xs = uniq(geo.flatMap((q) => [q.x0, q.x1]));
+    const ys = uniq(geo.flatMap((q) => [q.y0, q.y1]));
+    const ix = (arr, v) => arr.findIndex((a) => Math.abs(a - Math.round(v * 10) / 10) < 0.05);
+    const ng = {
+      table, nr: ys.length - 1, nc: xs.length - 1,
+      widths: xs.slice(1).map((x, i) => x - xs[i]),
+      heights: ys.slice(1).map((y, i) => Math.round(y - ys[i])),
+      cells: geo.map((q) => ({ el: q.el, c: ix(xs, q.x0), cs: ix(xs, q.x1) - ix(xs, q.x0), r: ix(ys, q.y0), rs: ix(ys, q.y1) - ix(ys, q.y0) })),
+    };
+    this.rebuild(ng);
+    // 셀 블록 다시 표시
+    const cs = ng.cells.filter((c) => sel.has(c.el));
+    this.block.table = table;
+    this.block.anchor = { r: Math.min(...cs.map((c) => c.r)), c: Math.min(...cs.map((c) => c.c)) };
+    this.block.focus = { r: Math.max(...cs.map((c) => c.r + c.rs - 1)), c: Math.max(...cs.map((c) => c.c + c.cs - 1)) };
+    this.block.paint();
+  },
+
+  // 셀 속성 적용
+  // 셀 대각선 (╲ down, ╱ up, ╳ both)
+  setDiag(td, dir, color = '#000000', width = 1) {
+    if (!dir || dir === 'none') { delete td.dataset.diag; delete td.dataset.dgc; delete td.dataset.dgw; td.style.backgroundImage = ''; td.style.backgroundSize = ''; td.style.backgroundRepeat = ''; return; }
+    td.dataset.diag = dir; td.dataset.dgc = color; td.dataset.dgw = String(width);
+    Table.paintDiag(td);
+  },
+  paintDiag(td) {
+    const dir = td.dataset.diag;
+    if (!dir) return;
+    const c = td.dataset.dgc || '#000000', w = +td.dataset.dgw || 1;
+    const ln = (x1, y1, x2, y2) => `<line x1='${x1}' y1='${y1}' x2='${x2}' y2='${y2}' stroke='${c}' stroke-width='${w}' vector-effect='non-scaling-stroke'/>`;
+    let body = '';
+    if (dir === 'down' || dir === 'both') body += ln(0, 0, 100, 100);
+    if (dir === 'up' || dir === 'both') body += ln(0, 100, 100, 0);
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'>${body}</svg>`;
+    td.style.backgroundImage = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+    td.style.backgroundSize = '100% 100%';
+    td.style.backgroundRepeat = 'no-repeat';
+  },
+  // ---------- 테두리 ----------
+  // [id, 이름, 한글 선 종류, 화면(CSS) 선 종류]
+  BORDER_KINDS: [
+    ['solid', '실선', 'SOLID', 'solid'], ['dashed', '파선', 'DASH', 'dashed'], ['dotted', '점선', 'DOT', 'dotted'],
+    ['dashdot', '일점쇄선', 'DASH_DOT', 'dashed'], ['dashdotdot', '이점쇄선', 'DASH_DOT_DOT', 'dashed'], ['longdash', '긴 파선', 'LONG_DASH', 'dashed'],
+    ['double', '이중선', 'DOUBLE_SLIM', 'double'], ['slimthick', '얇고 굵은 이중선', 'SLIM_THICK', 'double'], ['thickslim', '굵고 얇은 이중선', 'THICK_SLIM', 'double'],
+    ['triple', '삼중선', 'SLIM_THICK_SLIM', 'double'],
+  ],
+  SIDE_KEY: { Top: 'bt', Right: 'br', Bottom: 'bb', Left: 'bl' },
+  kindOf(id) { return this.BORDER_KINDS.find((k) => k[0] === id) || this.BORDER_KINDS[0]; },
+  kindFromHwp(t) { return this.BORDER_KINDS.find((k) => k[2] === t) || null; },
+  // 셀 한 변의 현재 선 {kind, mm, color} (kind 'none' 이면 없음)
+  sideGet(td, S) {
+    const cs = getComputedStyle(td);
+    const color = cssColorToHex(cs['border' + S + 'Color']) || '#000000';
+    const st = cs['border' + S + 'Style'];
+    if (!st || st === 'none' || st === 'hidden' || !parseFloat(cs['border' + S + 'Width'])) return { kind: 'none', mm: 0.12, color };
+    const d = td.dataset[this.SIDE_KEY[S]];
+    if (d) { const [mm, hwp] = d.split('|'); const k = this.kindFromHwp(hwp); return { kind: k ? k[0] : 'solid', mm: +mm || 0.12, color }; }
+    const px = parseFloat(cs['border' + S + 'Width']);
+    return { kind: st === 'dashed' ? 'dashed' : st === 'dotted' ? 'dotted' : st === 'double' ? 'double' : 'solid', mm: px <= 1.01 ? 0.12 : Math.round(px * 25.4 / 96 * 100) / 100, color };
+  },
+  sideSet(td, S, spec) {
+    const key = this.SIDE_KEY[S];
+    if (!spec || spec.kind === 'keep') return;
+    if (spec.kind === 'none') { td.style['border' + S] = 'none'; delete td.dataset[key]; return; }
+    const k = this.kindOf(spec.kind);
+    const mm = Math.max(0.05, +spec.mm || 0.12);
+    let px = mm * 96 / 25.4;
+    if (k[3] === 'double') px = Math.max(3, px);
+    px = Math.max(1, Math.round(px * 2) / 2);
+    td.style['border' + S] = `${px}px ${k[3]} ${spec.color || '#000000'}`;
+    td.dataset[key] = `${Math.round(mm * 100) / 100}|${k[2]}`;
+  },
+  // 선택 범위(셀 블록 또는 커서 셀)에 변마다 선 적용
+  // specs: {top, bottom, left, right, inH(안쪽 가로), inV(안쪽 세로)}
+  applyBorders(specs) {
+    const td0 = this.block.active() ? this.block.cells()[0] : this.currentCell();
+    if (!td0) return;
+    const table = td0.closest('table');
+    const g = this.grid(table);
+    let rc;
+    if (this.block.active()) rc = this.block.rect();
+    else { const x = g.cells.find((c) => c.el === td0); rc = { r1: x.r, r2: x.r + x.rs - 1, c1: x.c, c2: x.c + x.cs - 1 }; }
+    const inR = (x) => x.r >= rc.r1 && x.r + x.rs - 1 <= rc.r2 && x.c >= rc.c1 && x.c + x.cs - 1 <= rc.c2;
+    const set = (el, S, spec) => this.sideSet(el, S, spec);
+    const nb = (r, c) => (r >= 0 && c >= 0 && r < g.nr && c < g.nc ? this.cellAt(g, r, c) : null);
+    for (const x of g.cells.filter(inR)) {
+      const top = x.r === rc.r1, bot = x.r + x.rs - 1 === rc.r2, lef = x.c === rc.c1, rig = x.c + x.cs - 1 === rc.c2;
+      const sT = top ? specs.top : specs.inH, sB = bot ? specs.bottom : specs.inH;
+      const sL = lef ? specs.left : specs.inV, sR = rig ? specs.right : specs.inV;
+      set(x.el, 'Top', sT); set(x.el, 'Bottom', sB); set(x.el, 'Left', sL); set(x.el, 'Right', sR);
+      // 붙어 있는 바깥 셀의 맞닿은 변도 같게 (겹친 선에서 굵은 쪽이 이기지 않게)
+      if (top && sT && sT.kind !== 'keep') for (let c = x.c; c < x.c + x.cs; c++) { const o = nb(x.r - 1, c); if (o && !inR(o)) set(o.el, 'Bottom', sT); }
+      if (bot && sB && sB.kind !== 'keep') for (let c = x.c; c < x.c + x.cs; c++) { const o = nb(x.r + x.rs, c); if (o && !inR(o)) set(o.el, 'Top', sB); }
+      if (lef && sL && sL.kind !== 'keep') for (let r = x.r; r < x.r + x.rs; r++) { const o = nb(r, x.c - 1); if (o && !inR(o)) set(o.el, 'Right', sL); }
+      if (rig && sR && sR.kind !== 'keep') for (let r = x.r; r < x.r + x.rs; r++) { const o = nb(r, x.c + x.cs); if (o && !inR(o)) set(o.el, 'Left', sR); }
+    }
+  },
+  applyCellProps(p) {
+    const cells = this.block.active() ? this.block.cells() : [this.currentCell()].filter(Boolean);
+    if (!cells.length) return;
+    const table = cells[0].closest('table');
+    for (const td of cells) {
+      if (p.bg !== undefined) td.style.backgroundColor = p.bg || '';
+      if (p.valign) td.style.verticalAlign = p.valign;
+      if (p.diag) Table.setDiag(td, p.diag.dir, p.diag.color, p.diag.width);
+
+    }
+    if (p.borders) this.applyBorders(p.borders);
+    if (p.tableAlign) {
+      table.classList.remove('tbl-center', 'tbl-right');
+      if (p.tableAlign !== 'left') table.classList.add('tbl-' + p.tableAlign);
+    }
+  },
+
+  // ---------- 셀 이동 ----------
+  moveCell(forward) {
+    const td = this.currentCell();
+    if (!td) return false;
+    const table = td.closest('table');
+    const all = Array.from(table.querySelectorAll(':scope > tbody > tr > td, :scope > tbody > tr > th, :scope > tr > td'));
+    let i = all.indexOf(td) + (forward ? 1 : -1);
+    if (i >= all.length) {
+      this.insertRow(true);
+      const all2 = Array.from(table.querySelectorAll(':scope > tbody > tr > td, :scope > tbody > tr > th'));
+      const lastRow = rowsOf(table).pop();
+      Sel.caretInto(lastRow.cells[0].firstElementChild || lastRow.cells[0]);
+      return true;
+    }
+    if (i < 0) return true;
+    const target = all[i];
+    const r = document.createRange();
+    r.selectNodeContents(target.firstElementChild || target);
+    Sel.set(r);
+    return true;
+  },
+};
+
+// ---------- 셀 블록 (F5) ----------
+Table.block = {
+  table: null, anchor: null, focus: null, mode: 0,
+  active() { return !!(this.table && this.table.isConnected && this.anchor); },
+  start(td) {
+    td = td || Table.currentCell();
+    if (!td) return false;
+    const table = td.closest('table');
+    const g = Table.grid(table);
+    const x = g.cells.find((c) => c.el === td);
+    if (this.active() && this.table === table && this.mode === 1) {
+      // F5 두 번: 확장 모드, 세 번: 표 전체
+      this.mode = 2;
+      status('셀 블록 확장: 방향키로 범위를 넓히세요.');
+      this.paint();
+      return true;
+    }
+    if (this.active() && this.table === table && this.mode === 2) {
+      this.anchor = { r: 0, c: 0 };
+      this.focus = { r: g.nr - 1, c: g.nc - 1 };
+      this.mode = 3;
+      this.paint();
+      return true;
+    }
+    this.table = table;
+    this.anchor = { r: x.r, c: x.c };
+    this.focus = { r: x.r + x.rs - 1, c: x.c + x.cs - 1 };
+    this.mode = 1;
+    window.getSelection().removeAllRanges();
+    Sel.editor.blur();
+    this.paint();
+    return true;
+  },
+  setRange(table, a, f) {
+    this.table = table; this.anchor = a; this.focus = f; this.mode = 2;
+    this.paint();
+  },
+  clear() {
+    if (this.table) this.table.querySelectorAll('.cell-sel').forEach((c) => c.classList.remove('cell-sel'));
+    document.querySelectorAll('#editor .cell-sel').forEach((c) => c.classList.remove('cell-sel'));
+    const had = this.active();
+    this.table = null; this.anchor = null; this.focus = null; this.mode = 0;
+    $('#st-block').textContent = '';
+    return had;
+  },
+  rect() {
+    const g = Table.grid(this.table);
+    return expandRect(g, {
+      r1: Math.min(this.anchor.r, this.focus.r), r2: Math.max(this.anchor.r, this.focus.r),
+      c1: Math.min(this.anchor.c, this.focus.c), c2: Math.max(this.anchor.c, this.focus.c),
+    });
+  },
+  // 지금 블록이 걸친 칸(세로 줄) 또는 줄(가로 줄) 전체로 넓히기
+  selectLine(kind) {
+    if (!this.active()) return;
+    const g = Table.grid(this.table);
+    const rc = this.rect();
+    if (kind === 'col') { this.anchor = { r: 0, c: rc.c1 }; this.focus = { r: g.nr - 1, c: rc.c2 }; }
+    else { this.anchor = { r: rc.r1, c: 0 }; this.focus = { r: rc.r2, c: g.nc - 1 }; }
+    this.mode = 2;
+    this.paint();
+    status(kind === 'col' ? '세로 줄 전체를 선택했습니다.' : '가로 줄 전체를 선택했습니다.');
+  },
+  cells() {
+    if (!this.active()) return [];
+    const g = Table.grid(this.table);
+    const rc = this.rect();
+    return g.cells.filter((x) => x.r >= rc.r1 && x.r <= rc.r2 && x.c >= rc.c1 && x.c <= rc.c2).map((x) => x.el);
+  },
+  paint() {
+    document.querySelectorAll('#editor .cell-sel').forEach((c) => c.classList.remove('cell-sel'));
+    const cells = this.cells();
+    cells.forEach((c) => c.classList.add('cell-sel'));
+    $('#st-block').textContent = cells.length ? `셀 블록 ${cells.length}개 (M 합치기 · S 나누기 · L 테두리/배경 · H/W 같게 · F7 세로 줄 · F8 가로 줄 · Ctrl·Alt·Shift+방향키 크기)` : '';
+  },
+  move(dr, dc, extend) {
+    const g = Table.grid(this.table);
+    const f = { r: Math.max(0, Math.min(g.nr - 1, this.focus.r + dr)), c: Math.max(0, Math.min(g.nc - 1, this.focus.c + dc)) };
+    if (extend || this.mode >= 2) this.focus = f;
+    else {
+      const x = Table.cellAt(g, f.r, f.c);
+      this.anchor = { r: x.r, c: x.c };
+      this.focus = { r: x.r + x.rs - 1, c: x.c + x.cs - 1 };
+      if (dr > 0 || dc > 0) { /* 이미 반영 */ }
+    }
+    this.paint();
+  },
+  clearContents() {
+    this.cells().forEach((td) => { td.innerHTML = ''; td.append(h('p', {}, h('br'))); });
+  },
+};
+
+// 마우스: 셀 드래그 블록, 칸/줄 경계 드래그로 크기 조절
+Table.initMouse = function () {
+  const ed = Sel.editor;
+  let drag = null, cellDrag = null;
+  const EDGE = 4;
+  function edgeAt(e) {
+    const td = e.target.closest && e.target.closest('td, th');
+    if (!td || !ed.contains(td)) return null;
+    const r = td.getBoundingClientRect();
+    if (Math.abs(e.clientX - r.right) <= EDGE) return { type: 'col', td, side: 'right' };
+    if (Math.abs(e.clientX - r.left) <= EDGE && td.cellIndex > 0) return { type: 'col', td: td.previousElementSibling || td, side: td.previousElementSibling ? 'right' : 'left' };
+    if (Math.abs(e.clientY - r.bottom) <= EDGE) return { type: 'row', td };
+    return null;
+  }
+  ed.addEventListener('mousemove', (e) => {
+    if (drag || cellDrag) return;
+    const eg = edgeAt(e);
+    document.body.classList.toggle('col-resize', !!eg && eg.type === 'col');
+    document.body.classList.toggle('row-resize', !!eg && eg.type === 'row');
+  });
+  ed.addEventListener('mouseleave', () => { if (!drag) document.body.classList.remove('col-resize', 'row-resize'); });
+  ed.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    const eg = edgeAt(e);
+    if (eg) {
+      e.preventDefault();
+      History.checkpoint();
+      const table = eg.td.closest('table');
+      const g = Table.grid(table);
+      const x = g.cells.find((c) => c.el === eg.td);
+      if (eg.type === 'col') {
+        const idx = eg.side === 'left' ? x.c - 1 : x.c + x.cs - 1;
+        drag = { type: 'col', table, idx, widths: g.widths.slice(), x0: e.clientX };
+      } else {
+        const tr = rowsOf(table)[x.r + x.rs - 1];
+        drag = { type: 'row', tr, h0: tr.getBoundingClientRect().height / App.zoom, y0: e.clientY };
+      }
+      return;
+    }
+    const td = e.target.closest && e.target.closest('td, th');
+    Table.block.clear();
+    if (td && ed.contains(td) && !e.shiftKey) cellDrag = { td, table: td.closest('table'), started: false };
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (drag) {
+      if (drag.type === 'col') {
+        const dx = (e.clientX - drag.x0) / App.zoom;
+        const w = drag.widths.slice();
+        const i = drag.idx;
+        if (i < 0) return;
+        if (i + 1 < w.length && !e.shiftKey) {
+          const total = w[i] + w[i + 1];
+          w[i] = Math.max(12, Math.min(total - 12, w[i] + dx));
+          w[i + 1] = total - w[i];
+        } else w[i] = Math.max(12, w[i] + dx);
+        setColWidths(drag.table, w);
+      } else {
+        const dy = (e.clientY - drag.y0) / App.zoom;
+        drag.tr.style.height = Math.max(10, Math.round(drag.h0 + dy)) + 'px';
+      }
+      App.layoutSoon();
+      return;
+    }
+    if (cellDrag && e.buttons === 1) {
+      const td = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('td, th');
+      if (td && td !== cellDrag.td && td.closest('table') === cellDrag.table) {
+        const g = Table.grid(cellDrag.table);
+        const a = g.cells.find((x) => x.el === cellDrag.td), b = g.cells.find((x) => x.el === td);
+        if (a && b) {
+          window.getSelection().removeAllRanges();
+          Table.block.setRange(cellDrag.table, { r: a.r, c: a.c }, { r: b.r + b.rs - 1, c: b.c + b.cs - 1 });
+          cellDrag.started = true;
+        }
+      }
+      if (cellDrag.started) e.preventDefault();
+    }
+  });
+  window.addEventListener('mouseup', () => {
+    if (drag) { drag = null; document.body.classList.remove('col-resize', 'row-resize'); App.changed(); }
+    if (cellDrag && cellDrag.started) { window.getSelection().removeAllRanges(); ed.blur(); }
+    cellDrag = null;
+  });
+  document.addEventListener('selectionchange', () => {
+    if (cellDrag && cellDrag.started) window.getSelection().removeAllRanges();
+  });
+};
+
+// ---------- 도우미 ----------
+function rowsOf(table) {
+  return Array.from(table.rows).filter((tr) => tr.closest('table') === table);
+}
+function newCell(like) {
+  const td = h('td', {}, h('p', {}, h('br')));
+  if (like) {
+    ['backgroundColor', 'verticalAlign', 'borderTop', 'borderRight', 'borderBottom', 'borderLeft'].forEach((k) => { if (like.style[k]) td.style[k] = like.style[k]; });
+  }
+  return td;
+}
+function colWidths(table, nc) {
+  let cols = Array.from(table.querySelectorAll(':scope > colgroup > col'));
+  let w = cols.map((c) => parseFloat(c.style.width) || parseFloat(c.getAttribute('width')) || 0);
+  if (w.length !== nc || w.some((x) => !x)) {
+    // 측정해서 채우기
+    const first = rowsOf(table)[0];
+    const tw = parseFloat(table.style.width) || table.getBoundingClientRect().width / (window.App ? App.zoom : 1) || 600;
+    const measured = [];
+    if (first && nc) {
+      let c = 0;
+      for (const td of first.cells) {
+        const cw = td.getBoundingClientRect().width / (window.App ? App.zoom : 1);
+        for (let k = 0; k < td.colSpan; k++) measured[c++] = cw / td.colSpan;
+      }
+    }
+    w = Array.from({ length: nc }, (_, i) => w[i] || measured[i] || tw / nc);
+  }
+  return w;
+}
+function setColWidths(table, widths) {
+  let cg = table.querySelector(':scope > colgroup');
+  if (!cg) { cg = h('colgroup'); table.prepend(cg); }
+  cg.innerHTML = '';
+  widths.forEach((w) => cg.append(h('col', { style: `width:${Math.round(w * 10) / 10}px` })));
+  const total = widths.reduce((a, b) => a + b, 0);
+  table.style.width = Math.round(total) + 'px';
+}
+function fitWidths(g, table) {
+  const inCell = table.parentElement.closest('td');
+  const max = inCell ? inCell.clientWidth - 14 : App.contentWidth();
+  const total = g.widths.reduce((a, b) => a + b, 0);
+  if (total > max) g.widths = g.widths.map((w) => (w * max) / total);
+}
+function expandRect(g, rc) {
+  let changed = true;
+  rc = { ...rc };
+  while (changed) {
+    changed = false;
+    for (const x of g.cells) {
+      const overlaps = x.r <= rc.r2 && x.r + x.rs - 1 >= rc.r1 && x.c <= rc.c2 && x.c + x.cs - 1 >= rc.c1;
+      if (!overlaps) continue;
+      if (x.r < rc.r1) { rc.r1 = x.r; changed = true; }
+      if (x.c < rc.c1) { rc.c1 = x.c; changed = true; }
+      if (x.r + x.rs - 1 > rc.r2) { rc.r2 = x.r + x.rs - 1; changed = true; }
+      if (x.c + x.cs - 1 > rc.c2) { rc.c2 = x.c + x.cs - 1; changed = true; }
+    }
+  }
+  return rc;
+}
+function distribute(total, parts) {
+  if (parts >= total) return Array(parts).fill(1);
+  const base = Math.floor(total / parts);
+  const out = Array(parts).fill(base);
+  for (let i = 0; i < total - base * parts; i++) out[i]++;
+  return out;
+}
+// 커서 위치에 블록 요소(표 등) 넣기
+function insertBlockAtCaret(node) {
+  const r = Sel.range();
+  let block = r ? blockOf(r.startContainer) : null;
+  const ed = Sel.editor;
+  if (!block || block === ed) {
+    ed.append(node);
+  } else if (block.tagName === 'TD' || block.tagName === 'TH') {
+    block.append(node);
+  } else {
+    const empty = !block.textContent.replace(ZWSP, '').trim() && !block.querySelector('img,.nobj');
+    if (empty) block.replaceWith(node);
+    else {
+      // 커서 위치에서 문단 나누기
+      const after = r.cloneRange();
+      after.setEndAfter(block.lastChild || block);
+      const frag = after.extractContents();
+      const tail = block.cloneNode(false);
+      tail.append(frag);
+      block.after(node);
+      if (tail.textContent.trim() || tail.querySelector('img,.nobj')) node.after(tail);
+      if (!block.firstChild) block.append(h('br'));
+    }
+  }
+  if (!node.nextElementSibling || node.nextElementSibling.tagName === 'TABLE') node.after(h('p', {}, h('br')));
+}

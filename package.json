@@ -1,0 +1,85 @@
+{
+  "name": "nurigeul",
+  "productName": "누리글",
+  "version": "1.5.5",
+  "description": "아래아한글 단축키를 따르는 가벼운 문서 편집기 (HWPX)",
+  "main": "main.js",
+  "author": "mihoon",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "icons": "node scripts/icons.js",
+    "dist": "electron-builder --win --x64"
+  },
+  "devDependencies": {
+    "docx": "^9.7.2",
+    "electron": "44.4.5",
+    "electron-builder": "^26.15.3",
+    "jszip": "^3.10.1",
+    "lucide-static": "*"
+  },
+  "build": {
+    "appId": "kr.nurigeul.editor",
+    "productName": "누리글",
+    "copyright": "누리글",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "asar": true,
+    "fileAssociations": [
+      {
+        "ext": "hwpx",
+        "name": "HWPX 문서",
+        "description": "한글 문서 (HWPX)",
+        "role": "Editor",
+        "icon": "build/icon.ico"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Nurigeul-${version}-win-${arch}.${ext}",
+      "executableName": "Nurigeul"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "누리글",
+      "artifactName": "Nurigeul-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Nurigeul-Portable-${version}.exe"
+    },
+    "electronLanguages": [
+      "ko",
+      "en-US"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mihoon/nurigeul.git"
+  },
+  "homepage": "https://github.com/mihoon/nurigeul"
+}
