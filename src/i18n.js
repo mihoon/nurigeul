@@ -34,7 +34,7 @@ const I18N = {
     '셀 테두리/배경…': 'Cell Border/Fill…', 'L (셀 블록)': 'L (cell block)', '셀 너비를 같게': 'Equal Column Widths', 'W (셀 블록)': 'W (cell block)',
     '셀 높이를 같게': 'Equal Row Heights', 'H (셀 블록)': 'H (cell block)', '셀 크기 조절': 'Resize Cells', '셀 크기 조절 (표 크기 유지)': 'Resize Cells (Keep Table Size)',
     '선택한 셀만 크기 조절': 'Resize Selected Cells Only', '셀 내용 지우기': 'Clear Cell Contents', '표 지우기': 'Delete Table', '다음 셀': 'Next Cell',
-    '그림 속성…': 'Picture Properties…', '그림 배치': 'Picture Layout',
+    '그림 속성…': 'Picture Properties…', '캡션 넣기/고치기…': 'Insert/Edit Caption…', '캡션': 'Caption', '캡션 글': 'Caption text', '번호 붙이기 (그림 1, 그림 2 …)': 'Number (Figure 1, 2 …)', '그림 아래': 'Below picture', '그림 위': 'Above picture', '캡션 없애기': 'Remove caption', '배경 그림': 'Background image', '채우는 방식': 'Fill mode', '여러 셀에': 'Across cells', '그림 고르기…': 'Choose image…', '없애기': 'Remove', '그림 배치': 'Picture Layout',
     '매크로 정의 (기록 시작/끝)': 'Record Macro (Start/Stop)', '매크로 실행…': 'Run Macro…', '메일머지 만들기…': 'Run Mail Merge…',
     '메일머지 자료 문서 만들기…': 'Create Mail Merge Data Document…', '단축키 목록': 'Keyboard Shortcuts', '누리글 정보': 'About Nurigeul',
     // 도구 모음

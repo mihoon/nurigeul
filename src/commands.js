@@ -76,7 +76,7 @@ const Commands = (() => {
 
   // ================= 입력 =================
   def('입력', 'table-create', '표 만들기…', { keys: ['Ctrl+N,T'], icon: 'table', ask: () => Dialogs.tableCreate(), run: (a) => Table.create(a.rows, a.cols, { header: a.header }) });
-  def('입력', 'image-insert', '그림 넣기…', { keys: ['Ctrl+N,I'], icon: 'image', ask: () => Img.insertFromDialog().then((f) => (f ? { images: f.map((x) => x.url) } : null)), run: async (a) => { for (const u of a.images) await Img.insert(u); } });
+  def('입력', 'image-insert', '그림 넣기…', { keys: ['Ctrl+N,I'], icon: 'image', ask: () => Img.insertFromDialog().then((f) => (f ? { images: f.map((x) => x.url), names: f.map((x) => x.name) } : null)), run: async (a) => { for (let i = 0; i < a.images.length; i++) await Img.insert(a.images[i], { name: a.names && a.names[i] }); } });
   def('입력', 'page-break', '쪽 나누기', { keys: ['Ctrl+Enter'], icon: 'separator-horizontal', run: () => { if (Table.currentCell()) Table.insertRow(true); else Editing.pageBreak(); } });
   def('쪽', 'columns', '다단 설정…', { ask: () => Cols.dialog(), run: (a) => Cols.set(a) });
   def('쪽', 'col-break', '단 나누기', { keys: ['Ctrl+Shift+Enter'], run: () => Cols.colBreak() });
@@ -160,6 +160,7 @@ const Commands = (() => {
 
   // ================= 그림 =================
   def('그림', 'image-props', '그림 속성…', { enabled: () => !!Img.selected, ask: () => (Img.selected ? Dialogs.imageProps(Img.selected) : null), run: (a) => { const el = Img.selected; if (a.reset) Img.resetSize(); else Img.setSizeMM(null, a.w, a.hh); Img.setWrap(null, a.wrap); if (el) { Look.set(el, a); Img.drawBox(); } } });
+  def('그림', 'image-caption', '캡션 넣기/고치기…', { keys: ['Ctrl+N,C'], enabled: () => !!Img.selected && Img.selected.tagName === 'IMG', ask: () => Img.captionDialog(), run: (a) => Img.setCaptions(a) });
   def('그림', 'image-wrap', '그림 배치', { hidden: true, run: (a) => Shapes.setWrap(a.wrap) });
 
   // ================= 글상자·도형·배치 =================
@@ -199,6 +200,7 @@ const Commands = (() => {
 
   function cellPropsArgs(a) {
     const out = { valign: a.valign, tableAlign: a.tableAlign, bg: a.bgOn ? a.bg : '' };
+    if (a.bgImg !== undefined) { out.bgImg = a.bgImg; out.bgMode = a.bgMode || 'stretch'; out.bgSpan = a.bgSpan || 'each'; }
     if (a.diag && a.diag !== 'keep') out.diag = { dir: a.diag, color: a.dColor, width: a.dWidth > 0 && a.dWidth < 0.3 ? 1 : Math.max(1, Math.round((+a.dWidth || 0.12) * 96 / 25.4 * 2) / 2) };
     if (a.bApply && !a.bAll) { // 예전 모양(매크로)
       a.bAll = a.bApply;

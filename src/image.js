@@ -19,6 +19,7 @@ const Img = {
     if (!opts.width && w > maxW) { hgt = Math.round(hgt * maxW / w); w = Math.round(maxW); }
     const img = h('img', { src: url, alt: opts.alt || '', style: `width:${w}px;height:${hgt}px` });
     if (opts.wrap && opts.wrap !== 'inline') img.dataset.wrap = opts.wrap;
+    if (opts.name) img.dataset.name = String(opts.name).split(/[\\/]/).pop();
     const r = Sel.range();
     if (r) {
       r.deleteContents();
@@ -65,9 +66,84 @@ const Img = {
     this.selected = null;
     $('#overlay').innerHTML = '';
   },
+  // ---------- 캡션 ----------
+  figOf(img) { return img && img.parentElement && img.parentElement.classList.contains('figure') ? img.parentElement : null; },
+  // 캡션 상자의 너비·떠 있는 위치를 그림에 맞춤
+  syncFig(img) {
+    const fig = this.figOf(img);
+    if (!fig) return;
+    const w = parseFloat(img.style.width) || img.getBoundingClientRect().width / (App.zoom || 1);
+    if (w) fig.style.width = Math.round(w) + 'px';
+    if (this.isFloating(img)) { fig.style.left = img.style.left; fig.style.top = img.style.top; }
+    else { fig.style.left = ''; fig.style.top = ''; }
+  },
+  syncFigs(root) { for (const f of (root || Sel.editor).querySelectorAll('.figure > img')) this.syncFig(f); },
+  capText(fig) {
+    const cap = fig && fig.querySelector('.figcap');
+    if (!cap) return '';
+    const c = cap.cloneNode(true);
+    c.querySelectorAll('.fignum').forEach((n) => n.remove());
+    return c.textContent.replace(/ /g, ' ').trim();
+  },
+  async captionDialog() {
+    const img = this.selected;
+    if (!img || img.tagName !== 'IMG') { status('캡션을 넣을 그림을 먼저 누르세요.'); return null; }
+    const fig = this.figOf(img);
+    const cap = fig && fig.querySelector('.figcap');
+    const imgs = this.selection().filter((o) => o.tagName === 'IMG');
+    const named = imgs.filter((o) => this.fileLabel(o)).length;
+    const curText = this.capText(fig);
+    return Dialog.form(imgs.length > 1 ? `캡션 (그림 ${imgs.length}개)` : '캡션', [
+      { name: 'src', label: '캡션 내용', type: 'select', options: [['text', '직접 입력'], ['name', '파일 이름' + (named ? '' : ' (알 수 없음)')]], value: named && (imgs.length > 1 || (curText && curText === this.fileLabel(img))) ? 'name' : 'text' },
+      { name: 'text', label: '캡션 글', type: 'text', value: curText, placeholder: this.fileLabel(img) || '그림 설명', autofocus: true },
+      { name: 'num', label: '번호 붙이기 (그림 1, 그림 2 …)', type: 'checkbox', value: cap ? !!cap.querySelector('.fignum') : true },
+      { name: 'side', label: '위치', type: 'select', options: [['bottom', '그림 아래'], ['top', '그림 위']], value: fig ? fig.dataset.cap || 'bottom' : 'bottom' },
+      { name: 'align', label: '정렬', type: 'select', options: [['left', '왼쪽'], ['center', '가운데'], ['right', '오른쪽']], value: cap ? (cap.style.textAlign || 'left') : 'center' },
+      ...(fig ? [{ name: 'remove', label: '캡션 없애기', type: 'checkbox', value: false }] : []),
+    ], { okLabel: '확인', width: 440, note: `그림 번호는 문서 안 순서대로 저절로 매겨집니다. 캡션 글은 그림 아래(위)에서 바로 고쳐 쓸 수도 있습니다. '파일 이름'은 그림 파일 이름에서 확장자를 뺀 글자이며, Ctrl+누르기로 그림 여러 개를 골라 두면 한꺼번에 각자의 파일 이름으로 달립니다.${named < imgs.length ? ' 파일 이름을 모르는 그림(복사해 붙인 그림 등)은 직접 입력한 글이 들어갑니다.' : ''}` });
+  },
+  // 그림 파일 이름 (확장자 뺌)
+  fileLabel(img) {
+    const n = img && img.dataset.name;
+    return n ? n.replace(/\.[a-z0-9]{2,5}$/i, '').trim() : '';
+  },
+  setCaptions(a) {
+    const imgs = this.selection().filter((o) => o.tagName === 'IMG');
+    const prim = this.selected;
+    if (!imgs.length || !a) return;
+    for (const img of imgs) this.setCaption({ ...a, text: a.src === 'name' && this.fileLabel(img) ? this.fileLabel(img) : a.text }, img, true);
+    if (prim && prim.isConnected) this.select(prim);
+  },
+  setCaption(a, img, quiet) {
+    img = img || this.selected;
+    if (!img || img.tagName !== 'IMG' || !a) return;
+    let fig = this.figOf(img);
+    if (a.remove) {
+      if (fig) { fig.replaceWith(img); this.select(img); }
+      return;
+    }
+    if (!fig) {
+      fig = h('span', { class: 'figure', contenteditable: 'false' });
+      img.replaceWith(fig);
+      fig.append(img, h('span', { class: 'figcap', contenteditable: 'true' }));
+    }
+    fig.dataset.cap = a.side === 'top' ? 'top' : 'bottom';
+    const cap = fig.querySelector('.figcap');
+    cap.style.textAlign = a.align && a.align !== 'left' ? a.align : '';
+    const text = String(a.text || '').trim();
+    const hadNum = !!cap.querySelector('.fignum');
+    if (text !== this.capText(fig) || hadNum !== !!a.num) {
+      cap.textContent = '';
+      if (a.num) cap.append(h('span', { class: 'fignum', contenteditable: 'false' }));
+      if (text || !a.num) cap.append((a.num ? ' ' : '') + (text || ' '));
+    }
+    this.syncFig(img);
+    if (!quiet) this.select(img);
+  },
   drawBox() {
     const ov = $('#overlay');
     ov.innerHTML = '';
+    for (const o of this.selection()) if (o.tagName === 'IMG') this.syncFig(o);
     const img = this.selected;
     if (!img || !img.isConnected) { this.selected = null; return; }
     const page = $('#page').getBoundingClientRect();
@@ -238,10 +314,10 @@ const Img = {
     const all = this.selection();
     History.checkpoint();
     const r = document.createRange();
-    r.setStartBefore(img);
+    r.setStartBefore(this.figOf(img) || img);
     r.collapse(true);
     this.deselect();
-    all.forEach((o) => o.remove());
+    all.forEach((o) => (this.figOf(o) || o).remove());
     Sel.set(r);
     App.changed();
     return true;
@@ -320,7 +396,7 @@ const Img = {
       const pos = document.caretRangeFromPoint(e.clientX, e.clientY);
       if (pos && ed.contains(pos.startContainer)) Sel.set(pos);
       History.checkpoint();
-      for (const f of imgs) await Img.insert(await fileToDataURL(f));
+      for (const f of imgs) await Img.insert(await fileToDataURL(f), { name: f.name });
       App.changed();
     });
   },

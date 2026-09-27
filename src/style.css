@@ -136,6 +136,27 @@ body.show-marks #marks, body.show-paramarks #marks { display: block; }
 #editor img[data-wrap="front"] { position: absolute; z-index: 3; margin: 0; max-width: none; cursor: move; }
 #editor img[data-wrap="behind"] { position: absolute; z-index: -1; margin: 0; max-width: none; }
 #editor img.selected { outline: 2px solid var(--accent); }
+/* 캡션 달린 그림: span.figure 안에 그림과 캡션. 배치(data-wrap)는 그림에 적고 겉 상자가 따라감 */
+#editor { counter-reset: fig; }
+#editor .figure { display: inline-flex; flex-direction: column; vertical-align: bottom; text-indent: 0; max-width: 100%; }
+#editor .figure[data-cap="top"] { flex-direction: column-reverse; }
+#editor .figure > img { margin: 0 !important; float: none !important; position: static !important; display: block; }
+#editor .figure:has(> img[data-wrap="left"]) { float: left; margin: 2px 10px 4px 0; }
+#editor .figure:has(> img[data-wrap="right"]) { float: right; margin: 2px 0 4px 10px; }
+#editor .figure:has(> img[data-wrap="center"]) { display: flex; margin: 4px auto; }
+#editor .figure:has(> img[data-wrap="front"]) { position: absolute; z-index: 3; margin: 0; }
+#editor .figure:has(> img[data-wrap="behind"]) { position: absolute; z-index: -1; margin: 0; }
+#editor .figcap { display: block; padding: 3px 0 2px; font-size: 9pt; line-height: 1.4; outline: none; min-height: 1em; overflow-wrap: anywhere; cursor: text; }
+#editor .figure[data-cap="top"] .figcap { padding: 2px 0 3px; }
+#editor .fignum { counter-increment: fig; }
+#editor .fignum::before { content: "그림 " counter(fig); }
+/* 셀 배경 그림 */
+#editor td[data-bgmode] { background-origin: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+#editor td[data-bgmode="stretch"] { background-size: 100% 100%; background-repeat: no-repeat; }
+#editor td[data-bgmode="center"] { background-size: auto; background-repeat: no-repeat; background-position: center; }
+#editor td[data-bgmode="tile"] { background-size: auto; background-repeat: repeat; background-position: 0 0; }
+#editor td[data-bgmode="cover"] { background-size: cover; background-repeat: no-repeat; background-position: center; }
+#editor td[data-bgmode="one"] { background-repeat: no-repeat; }
 /* 새 쪽 번호 조판 부호 */
 #editor .pnnew { display: inline-block; width: 0; height: 1em; position: relative; vertical-align: baseline; user-select: none; }
 #editor .pnnew::after { display: none; content: "새 쪽번호 " attr(data-start); position: absolute; left: 0; top: -0.9em; white-space: nowrap; font: 9px var(--ui-font); color: #fff; background: #7a5cc2; border-radius: 3px; padding: 0 3px; line-height: 1.4; pointer-events: none; }

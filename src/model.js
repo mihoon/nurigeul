@@ -168,6 +168,21 @@ const Model = {
       else if (node.parentElement && node.previousSibling && !isBlock(node.parentElement)) out.push({ br: true });
       return;
     }
+    if (node.classList.contains('figure')) {
+      // 캡션 달린 그림
+      const img = node.querySelector('img');
+      if (!img) return;
+      const im = this.imgModel(img);
+      const cap = node.querySelector('.figcap');
+      if (cap) {
+        const rs = [];
+        for (const c of cap.childNodes) this.runs(c, rs);
+        im.caption = { side: node.dataset.cap === 'top' ? 'top' : 'bottom', runs: rs, cs: this.charStyle(cap), para: { ...this.paraProps(cap), ml: 0, mr: 0, indent: 0, before: 0, after: 0, tabs: [] } };
+      }
+      out.push({ img: im });
+      return;
+    }
+    if (node.classList.contains('fignum')) { out.push({ ...this.charStyle(node), autoNum: 'PICTURE' }); return; }
     if (tag === 'IMG') { out.push({ img: this.imgModel(node) }); return; }
     if (node.classList.contains('pnnew')) { out.push({ newNum: +node.dataset.start || 1 }); return; }
     if (node.classList.contains('pnhide')) { out.push({ pageHide: node.dataset.hide || 'p' }); return; }
@@ -190,7 +205,7 @@ const Model = {
     const rect = node.getBoundingClientRect();
     const w = parseFloat(node.style.width) || rect.width / z || node.naturalWidth;
     const hh = parseFloat(node.style.height) || rect.height / z || node.naturalHeight;
-    const im = { url: node.src, w, h: hh, wrap: node.dataset.wrap || 'inline', ...Look.model(node) };
+    const im = { url: node.src, w, h: hh, wrap: node.dataset.wrap || 'inline', name: node.dataset.name || '', ...Look.model(node) };
     if (im.wrap === 'front' || im.wrap === 'behind') { im.x = parseFloat(node.style.left) || 0; im.y = parseFloat(node.style.top) || 0; }
     return im;
   },
@@ -215,6 +230,10 @@ const Model = {
       return {
         r: x.r, c: x.c, rs: x.rs, cs: x.cs, w, h: hh,
         bg: cssColorToHex(cs.backgroundColor),
+        // 여러 셀에 하나로 넣은 그림·비율 유지 채우기는 셀 크기대로 잘라 저장 (원본은 표 설명에 따로 기록)
+        bgImg: !x.el.dataset.bgmode ? null : /^(one|cover)$/.test(x.el.dataset.bgmode) ? Table.bakeBg(x.el) : Table.bgUrl(x.el),
+        bgMode: !x.el.dataset.bgmode ? null : /^(one|cover)$/.test(x.el.dataset.bgmode) ? 'stretch' : x.el.dataset.bgmode,
+        bgMeta: /^(one|cover)$/.test(x.el.dataset.bgmode || '') ? { m: x.el.dataset.bgmode, f: x.el.dataset.bgfit || '', g: x.el.dataset.bggid || '', url: Table.bgUrl(x.el) } : null,
         valign: cs.verticalAlign === 'top' ? 'top' : cs.verticalAlign === 'bottom' ? 'bottom' : 'middle',
         borders: { top: side('Top'), right: side('Right'), bottom: side('Bottom'), left: side('Left') },
         blocks: this.blocks(x.el),

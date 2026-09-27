@@ -123,6 +123,28 @@ const Dialog = {
           const lab = h('label', {}, f.label);
           form.append(lab, col.el);
           continue;
+        } else if (f.type === 'image') {
+          // 그림 고르기: 미리보기 + [그림 고르기…] [없애기]. 값: null(그대로) / ''(없앰) / data URL
+          const prev = h('span', { class: 'img-prev' });
+          const show = () => {
+            prev.textContent = '';
+            if (inp._img === null) prev.append(h('span', { class: 'muted' }, f.keepLabel || '바꾸지 않음'));
+            else if (!inp._img) prev.append(h('span', { class: 'muted' }, '없음'));
+            else prev.append(h('img', { src: inp._img, style: { maxWidth: '72px', maxHeight: '40px', verticalAlign: 'middle', border: '1px solid #ccc' } }));
+          };
+          const pickBtn = h('button', { type: 'button' }, '그림 고르기…');
+          const clearBtn = h('button', { type: 'button' }, '없애기');
+          inp = h('div', { class: 'row', style: { gap: '6px', alignItems: 'center' } }, prev, pickBtn, clearBtn);
+          inp._img = f.value === undefined ? null : f.value;
+          pickBtn.addEventListener('click', async () => {
+            const files = await window.native.openDialog('image', false);
+            if (!files || !files.length) return;
+            inp._img = bytesToDataURL(files[0].data, mimeFromName(files[0].name));
+            show();
+            inp.dispatchEvent(new Event('input'));
+          });
+          clearBtn.addEventListener('click', () => { inp._img = ''; show(); inp.dispatchEvent(new Event('input')); });
+          show();
         } else if (f.type === 'textarea') {
           inp = h('textarea', { rows: f.rows || 4 });
           inp.value = f.value || '';
@@ -146,6 +168,7 @@ const Dialog = {
           if (f.type === 'quad') out[f.name] = inp._quad.map((x) => +x.value || 0);
           else if (f.type === 'border') out[f.name] = { kind: inp._b.kind.value, mm: Math.max(0.05, +inp._b.w.value || 0.12), color: inp._b.col.value };
           else if (f.type === 'checkbox') out[f.name] = inp.checked;
+          else if (f.type === 'image') out[f.name] = inp._img;
           else if (f.type === 'number') out[f.name] = inp.value === '' ? null : +inp.value;
           else out[f.name] = inp.value;
         }
@@ -322,6 +345,10 @@ const Dialogs = {
     const v = await Dialog.form('셀 테두리/배경', [
       { name: 'bgOn', label: '배경색 사용', type: 'checkbox', value: !!cssColorToHex(cs.backgroundColor) },
       { name: 'bg', label: '배경색', type: 'color', value: cssColorToHex(cs.backgroundColor) || '#e8edf5' },
+      { type: 'section', label: '배경 그림' },
+      { name: 'bgImg', label: '그림', type: 'image', value: null, keepLabel: td.dataset.bgmode ? '지금 그림 그대로' : '없음 (그대로)' },
+      { name: 'bgMode', label: '채우는 방식', type: 'select', options: [['stretch', '셀 크기에 맞춤 (늘이기)'], ['cover', '비율 유지하며 가득 채우기'], ['center', '가운데 (원래 크기)'], ['tile', '바둑판식']], value: td.dataset.bgmode || 'cover' },
+      ...(Table.block.active() && Table.block.cells().length > 1 ? [{ name: 'bgSpan', label: '여러 셀에', type: 'select', options: [['one', '선택한 셀 전체에 하나로 (이어서)'], ['each', '셀마다 따로']], value: 'one' }] : []),
       { type: 'section', label: '테두리 — 한꺼번에' },
       { name: 'bAll', label: '적용할 곳', type: 'select', options: [['keep', '바꾸지 않음'], ['all', '모두 (바깥 + 안쪽)'], ['outer', '바깥쪽만'], ['inner', '안쪽만'], ['none', '테두리 모두 없애기']], value: 'keep' },
       { name: 'bLine', label: '선 (종류·굵기·색)', type: 'border', value: { kind: 'solid', mm: cur.Top.mm, color: cur.Top.color } },
@@ -473,7 +500,7 @@ const Dialogs = {
     Dialog.open({
       title: '누리글 정보', width: 420,
       body: h('div', { style: { lineHeight: 1.7 } },
-        h('div', { style: { fontSize: '18px', fontWeight: 'bold' } }, '누리글 1.5.7'),
+        h('div', { style: { fontSize: '18px', fontWeight: 'bold' } }, '누리글 1.5.12'),
         h('div', {}, '아래아한글 단축키 체계를 따르는 가벼운 문서 편집기'),
         h('div', { class: 'note' }, 'HWPX 열기/저장 · HWP 열기(HWPX로 변환) · DOCX/PDF 내보내기 · 표 · 그림 · 키 매크로 · 메일머지')),
       buttons: [{ label: '확인', primary: true }],

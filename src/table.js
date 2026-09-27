@@ -28,6 +28,18 @@ const Table = {
     const heights = trs.map((tr) => parseFloat(tr.style.height) || 0);
     return { table, cells, nr, nc, widths, heights };
   },
+  // 셀마다 가로 범위([x1,x2])를 주면 칸 경계를 새로 계산해 표를 다시 짬 (필요하면 칸을 나누거나 합침)
+  regridX(g0, ranges) {
+    const xs = [];
+    ranges.forEach(([a, b]) => { xs.push(a, b); });
+    xs.sort((a, b) => a - b);
+    const P = [];
+    for (const v of xs) if (!P.length || v - P[P.length - 1] > 0.5) P.push(v);
+    const idx = (v) => { let best = 0; P.forEach((p, i) => { if (Math.abs(p - v) < Math.abs(P[best] - v)) best = i; }); return best; };
+    const g = { table: g0.table, nr: g0.nr, heights: g0.heights, nc: P.length - 1, widths: P.slice(1).map((p, i) => p - P[i]) };
+    g.cells = g0.cells.map((c, i) => { const a = idx(ranges[i][0]), b = idx(ranges[i][1]); return { el: c.el, r: c.r, rs: c.rs, c: a, cs: Math.max(1, b - a) }; });
+    this.rebuild(g);
+  },
   cellAt(g, r, c) {
     return g.cells.find((x) => r >= x.r && r < x.r + x.rs && c >= x.c && c < x.c + x.cs) || null;
   },
@@ -282,9 +294,29 @@ const Table = {
     if (!table) return;
     const trs = rowsOf(table);
     const rc = this.block.active() ? this.block.rect() : { r1: 0, r2: trs.length - 1 };
-    const hs = trs.slice(rc.r1, rc.r2 + 1).map((tr) => tr.getBoundingClientRect().height / App.zoom);
-    const m = Math.max(...hs);
-    trs.slice(rc.r1, rc.r2 + 1).forEach((tr) => (tr.style.height = Math.round(m) + 'px'));
+    // 한글처럼: 고른 줄들의 전체 높이는 그대로 두고 그 안에서 똑같이 나눔
+    const rows = trs.slice(rc.r1, rc.r2 + 1);
+    if (rows.length < 2) return;
+    const z = App.zoom || 1;
+    const total = rows.reduce((a, tr) => a + tr.getBoundingClientRect().height / z, 0);
+    // 글자 때문에 더 줄일 수 없는 최소 높이
+    const saved = rows.map((tr) => tr.style.height);
+    rows.forEach((tr) => (tr.style.height = '1px'));
+    const mins = rows.map((tr) => tr.getBoundingClientRect().height / z);
+    rows.forEach((tr, i) => (tr.style.height = saved[i]));
+    // 최소 높이보다 작아지는 줄은 최소 높이로 두고 나머지 줄끼리 나눔
+    const fixed = new Set();
+    let each = total / rows.length;
+    for (let k = 0; k < rows.length; k++) {
+      const over = rows.findIndex((tr, i) => !fixed.has(i) && mins[i] > each + 0.5);
+      if (over < 0) break;
+      fixed.add(over);
+      const free = rows.length - fixed.size;
+      if (!free) break;
+      each = (total - [...fixed].reduce((a, i) => a + mins[i], 0)) / free;
+    }
+    rows.forEach((tr, i) => (tr.style.height = (fixed.has(i) ? Math.ceil(mins[i]) : Math.round(each * 10) / 10) + 'px'));
+    if (fixed.size) status(`글자가 많은 줄 ${fixed.size}개는 더 줄일 수 없어 그대로 두고, 나머지 줄을 같은 높이로 맞췄습니다.`);
   },
   resizeCols(dx) {
     const table = this.block.active() ? this.block.table : this.current();
@@ -487,10 +519,105 @@ const Table = {
 
     }
     if (p.borders) this.applyBorders(p.borders);
+    if (p.bgImg !== undefined) {
+      if (p.bgImg === '') cells.forEach((td) => { td.style.backgroundImage = ''; delete td.dataset.bgmode; });
+      else if (p.bgImg) this.applyBgImage(cells, p.bgImg, p.bgMode, p.bgSpan).then(() => App.changed(), (e) => status('배경 그림을 넣지 못했습니다: ' + e.message));
+      else if (p.bgMode) {
+        cells.forEach((td) => { if (td.dataset.bgmode === 'one') td.dataset.bgfit = p.bgMode; else if (td.dataset.bgmode) td.dataset.bgmode = p.bgMode; });
+        this.layoutBg(table);
+      }
+    }
     if (p.tableAlign) {
       table.classList.remove('tbl-center', 'tbl-right'); delete table.dataset.shift; table.style.marginLeft = '';
       if (p.tableAlign !== 'left') table.classList.add('tbl-' + p.tableAlign);
     }
+  },
+
+  // ---------- 셀 배경 그림 ----------
+  // each: 셀마다 같은 그림 / one: 선택한 셀들을 한 장처럼 (그림을 잘라 셀마다 나눠 넣음)
+  async applyBgImage(cells, url, mode, span) {
+    mode = mode || 'stretch';
+    const one = span === 'one' && cells.length > 1;
+    await this.bgImage(url);
+    const gid = one ? 'g' + Date.now().toString(36) : null;
+    for (const td of cells) {
+      td.style.backgroundImage = `url(${url})`;
+      td.style.backgroundSize = td.style.backgroundPosition = td.style.backgroundRepeat = '';
+      delete td.dataset.bgfit; delete td.dataset.bggid;
+      if (one) { td.dataset.bgmode = 'one'; td.dataset.bgfit = mode; td.dataset.bggid = gid; }
+      else td.dataset.bgmode = mode;
+    }
+    const table = cells[0].closest('table');
+    if (table) this.layoutBg(table);
+  },
+  // 배경 그림 불러 두기 (크기 계산·저장할 때 자르기용)
+  _bgCache: new Map(),
+  bgImage(url) {
+    let c = this._bgCache.get(url);
+    if (!c) {
+      const im = new Image();
+      c = { im, ready: false };
+      c.p = new Promise((res, rej) => { im.onload = () => { c.ready = true; res(im); }; im.onerror = () => rej(new Error('그림을 읽을 수 없습니다')); });
+      im.src = url;
+      this._bgCache.set(url, c);
+    }
+    return c.p;
+  },
+  bgUrl(td) { return (/url\(["']?([^"')]+)["']?\)/.exec(td.style.backgroundImage) || [])[1] || null; },
+  // "하나로" 넣은 그림: 셀 묶음 전체 크기에 맞춰 셀마다 보이는 부분을 계산 (셀 크기가 바뀌면 다시)
+  bgGeom(td) {
+    const table = td.closest('table');
+    const gid = td.dataset.bggid;
+    const group = gid && table ? Array.from(table.querySelectorAll(`td[data-bggid="${gid}"], th[data-bggid="${gid}"]`)) : [td];
+    const z = App.zoom || 1;
+    const rs = group.map((c) => c.getBoundingClientRect());
+    const gx = Math.min(...rs.map((r) => r.left)) / z, gy = Math.min(...rs.map((r) => r.top)) / z;
+    const W = Math.max(...rs.map((r) => r.right)) / z - gx, H = Math.max(...rs.map((r) => r.bottom)) / z - gy;
+    const r = td.getBoundingClientRect();
+    const cx = r.left / z, cy = r.top / z;
+    const c = this._bgCache.get(this.bgUrl(td));
+    const nw = c && c.ready ? c.im.naturalWidth : W, nh = c && c.ready ? c.im.naturalHeight : H;
+    const fit = td.dataset.bgmode === 'one' ? td.dataset.bgfit || 'stretch' : td.dataset.bgmode;
+    let iw = W, ih = H, ox = gx, oy = gy;
+    if (fit === 'cover') { const sc = Math.max(W / nw, H / nh); iw = nw * sc; ih = nh * sc; ox = gx + (W - iw) / 2; oy = gy + (H - ih) / 2; }
+    else if (fit === 'center') { iw = nw; ih = nh; ox = gx + (W - iw) / 2; oy = gy + (H - ih) / 2; }
+    else if (fit === 'tile') { iw = nw; ih = nh; }
+    return { fit, iw, ih, dx: ox - cx, dy: oy - cy, w: r.width / z, h: r.height / z, cache: c };
+  },
+  layoutBg(table) {
+    for (const td of table.querySelectorAll('td[data-bgmode="one"], th[data-bgmode="one"]')) {
+      const url = this.bgUrl(td);
+      if (!url) continue;
+      const c = this._bgCache.get(url);
+      if (!c || !c.ready) { this.bgImage(url).then(() => this.layoutBg(table), () => {}); continue; }
+      const g = this.bgGeom(td);
+      td.style.backgroundSize = `${g.iw.toFixed(1)}px ${g.ih.toFixed(1)}px`;
+      td.style.backgroundPosition = `${g.dx.toFixed(1)}px ${g.dy.toFixed(1)}px`;
+      td.style.backgroundRepeat = g.fit === 'tile' ? 'repeat' : 'no-repeat';
+    }
+  },
+  layoutBgAll() { for (const t of Sel.editor.querySelectorAll('table')) if (t.querySelector('[data-bgmode="one"]')) this.layoutBg(t); },
+  // 저장용: 화면에 보이는 대로 셀 크기의 그림으로 굽기 (HWPX는 셀마다 '크기에 맞추어'만 되므로)
+  bakeBg(td) {
+    const url = this.bgUrl(td);
+    const c = url && this._bgCache.get(url);
+    if (!c || !c.ready) return url;
+    const g = this.bgGeom(td);
+    const im = c.im;
+    const k = Math.max(1, Math.min(3, im.naturalWidth / Math.max(1, g.iw)), 1);
+    const kk = Math.min(k, 3000 / Math.max(1, g.w), 3000 / Math.max(1, g.h));
+    const cv = document.createElement('canvas');
+    cv.width = Math.max(1, Math.round(g.w * kk)); cv.height = Math.max(1, Math.round(g.h * kk));
+    const cx = cv.getContext('2d');
+    const jpeg = /^data:image\/jpe?g/i.test(url);
+    if (jpeg) { cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height); }
+    if (g.fit === 'tile') {
+      cx.scale(kk, kk);
+      const pat = cx.createPattern(im, 'repeat');
+      pat.setTransform(new DOMMatrix().translate(g.dx, g.dy));
+      cx.fillStyle = pat; cx.fillRect(0, 0, g.w, g.h);
+    } else cx.drawImage(im, g.dx * kk, g.dy * kk, g.iw * kk, g.ih * kk);
+    return cv.toDataURL(jpeg ? 'image/jpeg' : 'image/png', 0.9);
   },
 
   // ---------- 셀 이동 ----------
@@ -620,6 +747,7 @@ Table.initMouse = function () {
     if (Math.abs(e.clientX - r.right) <= EDGE) return { type: 'col', td, side: 'right' };
     if (Math.abs(e.clientX - r.left) <= EDGE && td.cellIndex > 0) return { type: 'col', td: td.previousElementSibling || td, side: td.previousElementSibling ? 'right' : 'left' };
     if (Math.abs(e.clientY - r.bottom) <= EDGE) return { type: 'row', td };
+    if (Math.abs(e.clientY - r.top) <= EDGE && td.parentElement.rowIndex > 0) return { type: 'row', td, top: true };
     return null;
   }
   ed.addEventListener('mousemove', (e) => {
@@ -641,9 +769,44 @@ Table.initMouse = function () {
       if (eg.type === 'col') {
         const idx = eg.side === 'left' ? x.c - 1 : x.c + x.cs - 1;
         drag = { type: 'col', table, idx, widths: g.widths.slice(), x0: e.clientX };
+        // 안쪽 세로선: 선 전체가 움직이고 표 너비는 그대로.
+        // 셀 블록(F5) 안의 선이면 블록의 줄만, Ctrl을 누르면 그 셀의 줄만 (Shift: 칸 너비만 바꿔 표가 커짐)
+        const inBlock = Table.block.active() && Table.block.table === table && Table.block.cells().includes(eg.td);
+        if (idx >= 0 && idx + 1 < g.nc && !e.shiftKey && (e.ctrlKey || inBlock)) {
+          const b = idx + 1;
+          let r1 = x.r, r2 = x.r + x.rs - 1;
+          if (inBlock) { const rc = Table.block.rect(); r1 = Math.min(r1, rc.r1); r2 = Math.max(r2, rc.r2); }
+          // 경계에 닿는 셀이 위아래로 더 걸쳐 있으면 그 줄까지 넓힘
+          for (let changed = true; changed;) {
+            changed = false;
+            for (const c of g.cells) {
+              if ((c.c + c.cs === b || c.c === b) && c.r <= r2 && c.r + c.rs - 1 >= r1) {
+                if (c.r < r1) { r1 = c.r; changed = true; }
+                if (c.r + c.rs - 1 > r2) { r2 = c.r + c.rs - 1; changed = true; }
+              }
+            }
+          }
+          if (r1 > 0 || r2 < g.nr - 1) {
+            const P = [0]; g.widths.forEach((w) => P.push(P[P.length - 1] + w));
+            const cells = g.cells.map((c) => ({ ...c, x1: P[c.c], x2: P[c.c + c.cs], L: c.r >= r1 && c.r + c.rs - 1 <= r2 && c.c + c.cs === b, R: c.r >= r1 && c.r + c.rs - 1 <= r2 && c.c === b }));
+            const lo = Math.max(...cells.filter((c) => c.L).map((c) => c.x1)) + 8;
+            const hi = Math.min(...cells.filter((c) => c.R).map((c) => c.x2)) - 8;
+            drag = { type: 'seg', table, g, cells, X: P[b], lo, hi, x0: e.clientX };
+          }
+        }
       } else {
-        const tr = rowsOf(table)[x.r + x.rs - 1];
-        drag = { type: 'row', tr, h0: tr.getBoundingClientRect().height / App.zoom, y0: e.clientY };
+        const trs = rowsOf(table);
+        const i = eg.top ? x.r - 1 : x.r + x.rs - 1;
+        const tr = trs[i], next = trs[i + 1];
+        drag = { type: 'row', table, tr, h0: tr.getBoundingClientRect().height / App.zoom, y0: e.clientY };
+        // 안쪽 가로선: 위 줄이 커진 만큼 아래 줄이 줄어 표 높이는 그대로 (Shift: 위 줄만 바꿔 표가 커짐)
+        if (next && !e.shiftKey) {
+          const z = App.zoom || 1;
+          const minOf = (row) => { const sv = row.style.height; row.style.height = '1px'; const m = row.getBoundingClientRect().height / z; row.style.height = sv; return m; };
+          drag.next = next;
+          drag.n0 = next.getBoundingClientRect().height / z;
+          drag.tmin = minOf(tr); drag.nmin = minOf(next);
+        }
       }
       return;
     }
@@ -664,10 +827,21 @@ Table.initMouse = function () {
           w[i + 1] = total - w[i];
         } else w[i] = Math.max(12, w[i] + dx);
         setColWidths(drag.table, w);
+      } else if (drag.type === 'seg') {
+        const nx = Math.max(drag.lo, Math.min(drag.hi, drag.X + (e.clientX - drag.x0) / App.zoom));
+        Table.regridX(drag.g, drag.cells.map((c) => [c.R ? nx : c.x1, c.L ? nx : c.x2]));
       } else {
         const dy = (e.clientY - drag.y0) / App.zoom;
-        drag.tr.style.height = Math.max(10, Math.round(drag.h0 + dy)) + 'px';
+        if (drag.next) {
+          const total = drag.h0 + drag.n0;
+          const want = drag.h0 + dy;
+          const top = Math.max(drag.tmin, Math.min(total - drag.nmin, want));
+          if (Math.abs(top - want) > 2 && !drag.warned) { drag.warned = true; status('아래(위) 줄의 글자 때문에 더 옮길 수 없습니다. 표 높이까지 바꾸려면 Shift를 누른 채 끄세요.'); }
+          drag.tr.style.height = Math.round(top) + 'px';
+          drag.next.style.height = Math.round(total - top) + 'px';
+        } else drag.tr.style.height = Math.max(10, Math.round(drag.h0 + dy)) + 'px';
       }
+      Table.layoutBg(drag.table || drag.tr.closest('table'));
       App.layoutSoon();
       return;
     }

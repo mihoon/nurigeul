@@ -423,6 +423,8 @@ const App = {
   layout() {
     this.applyBaseFont();
     Ratio.render();
+    Img.syncFigs();
+    Table.layoutBgAll();
     Lists.syncMarkers();
     TabStops.layoutAll();
     const p = this.page;
@@ -799,7 +801,7 @@ App.bindEvents = function () {
     if (MultiSel.active) MultiSel.stop();
     History.checkpoint();
     if (files.length && !html) {
-      (async () => { for (const f of files) await Img.insert(await fileToDataURL(f)); App.changed(); })();
+      (async () => { for (const f of files) await Img.insert(await fileToDataURL(f), { name: f.name && f.name !== 'image.png' ? f.name : '' }); App.changed(); })();
       return;
     }
     if (Macro.active) Macro.cmd('paste', { html: html || undefined, text });
@@ -1152,7 +1154,7 @@ const MENUS = [
   { name: '파일', key: 'F', items: ['file-new', 'file-new-window', 'file-open', '-', 'file-save', 'file-saveas', 'file-docx', 'file-pdf', '-', 'page-setup', 'file-print', '-', 'file-close', 'app-quit'] },
   { name: '편집', key: 'E', items: ['undo', 'redo', '-', 'cut', 'copy', 'paste', 'paste-text', '-', 'select-all', 'block', 'col-block', 'caret-add-up', 'caret-add-down', '-', 'delete-line', 'delete-eol', 'delete-word', '-', 'find', 'replace', 'find-next', 'goto', '-', 'shape-copy'] },
   { name: '보기', key: 'U', items: ['toggle-guides', 'toggle-paramarks', 'toggle-marks', 'toggle-hruler', 'toggle-vruler', '-', 'split-v', 'split-h', 'split-off', '-', 'lang-ko', 'lang-en', '-', 'zoom-in', 'zoom-out', 'zoom-100', 'zoom-width'] },
-  { name: '입력', key: 'D', items: ['table-create', 'image-insert', 'textbox', '-', 'shape-line', 'shape-arrow', 'shape-darrow', 'shape-rect', 'shape-roundrect', 'shape-ellipse', 'shape-triangle', '-', 'wrap-inline', 'wrap-left', 'wrap-right', 'wrap-front', 'wrap-behind', 'object-props', 'shape-text', 'obj-group', 'obj-ungroup', '-', 'page-break', 'symbols', 'date-insert', 'link', '-', 'mm-mark'] },
+  { name: '입력', key: 'D', items: ['table-create', 'image-insert', 'textbox', '-', 'shape-line', 'shape-arrow', 'shape-darrow', 'shape-rect', 'shape-roundrect', 'shape-ellipse', 'shape-triangle', '-', 'wrap-inline', 'wrap-left', 'wrap-right', 'wrap-front', 'wrap-behind', 'object-props', 'image-caption', 'shape-text', 'obj-group', 'obj-ungroup', '-', 'page-break', 'symbols', 'date-insert', 'link', '-', 'mm-mark'] },
   { name: '서식', key: 'J', items: ['char-shape', 'para-shape', 'tab-dialog', 'style-dlg', '-', 'bold', 'italic', 'underline', 'strike', 'sup', 'sub', 'normal-char', '-', 'size-up', 'size-down', 'spacing-wide', 'spacing-narrow', 'ratio-wide', 'ratio-narrow', 'lh-up', 'lh-down', '-', 'align-justify', 'align-left', 'align-center', 'align-right', 'align-distribute', '-', 'indent-first', 'outdent-first', 'margin-inc', 'margin-dec', '-', 'numbering', 'numbering-shape', 'num-restart', 'bullets', 'bullet-shape', 'list-deeper', 'list-shallower'] },
   { name: '쪽', key: 'W', items: ['page-setup', 'page-break', '-', 'columns', 'col-break', '-', 'page-number', 'page-newnum', 'page-hide', 'header-footer'] },
   { name: '표', key: 'B', items: ['table-create', '-', 'cell-block', 'row-col-insert', 'row-add', 'col-add', 'row-col-delete', '-', 'cell-merge', 'cell-split', 'cell-props', 'equal-width', 'equal-height', '-', 'table-props', 'wrap-inline', 'wrap-left', 'wrap-right', 'wrap-front', 'wrap-behind', '-', 'table-delete'] },
@@ -1253,6 +1255,7 @@ App.showContextMenu = function (e) {
     if (obj.dataset.kind === 'group') items.push('-', 'obj-ungroup');
     const isImg = obj.tagName === 'IMG';
     items.push('-', Img.propsCmd(obj));
+    if (isImg) items.push('image-caption');
     if (Shapes.canHaveText(obj)) items.push({ label: obj.querySelector('.sh-text') ? '도형 안 글자 고치기' : '도형 안에 글자 넣기', run: () => Shapes.addText(obj) });
     items.push(...wrapItems(Shapes.WRAPS),
       { label: isImg ? '그림 지우기' : '개체 지우기', key: 'Delete', run: () => Img.remove() });

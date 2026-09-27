@@ -4,9 +4,18 @@ const DocxExport = {
   async write(model) {
     const D = window.docx;
     // 도형·글상자는 그림(PNG)으로 바꿔 넣기
+    let figN = 0;
     const walk = async (blocks) => {
       for (const b of blocks) {
         if (b.t === 'table') { for (const c of b.cells) await walk(c.blocks); continue; }
+        // 그림 캡션 → 그림 뒤(앞)에 줄을 바꿔 글로 넣음
+        for (let i = 0; i < b.runs.length; i++) {
+          const cap = b.runs[i].img && b.runs[i].img.caption;
+          if (!cap) continue;
+          const rs = cap.runs.map((r) => (r.autoNum ? { ...r, autoNum: undefined, text: '그림 ' + (++figN) } : r));
+          if (cap.side === 'top') { b.runs.splice(i, 0, ...rs, { br: true }); i += rs.length + 1; }
+          else { b.runs.splice(i + 1, 0, { br: true }, ...rs); i += rs.length + 1; }
+        }
         for (let i = 0; i < b.runs.length; i++) {
           const sh = b.runs[i].shape;
           if (!sh) continue;

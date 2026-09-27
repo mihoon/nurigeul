@@ -1,5 +1,6 @@
 // HWPX(OWPML) 읽기/쓰기
 'use strict';
+const BG_META = '누리글 셀 배경:';
 const HWPX = (() => {
   const T = window.HWPX_TEMPLATE;
   const NS_HP = 'http://www.hancom.co.kr/hwpml/2011/paragraph';
@@ -72,7 +73,7 @@ const HWPX = (() => {
         return { t, w: s.mm ? mmToBorderMM(s.mm) : pxToBorderMM(s.width), c: (s.color || '#000000').toUpperCase() };
       };
       const b = cell ? cell.borders : null;
-      const k = b ? { l: side(b.left), r: side(b.right), t: side(b.top), b: side(b.bottom), f: cell.bg ? cell.bg.toUpperCase() : null, ...(cell.diag ? { dg: cell.diag, dc: (cell.dgc || '#000000').toUpperCase(), dw: pxToBorderMM(cell.dgw || 1) } : {}) }
+      const k = b ? { l: side(b.left), r: side(b.right), t: side(b.top), b: side(b.bottom), f: cell.bg ? cell.bg.toUpperCase() : null, ...(cell.bgImg && binFor(cell.bgImg) ? { im: binFor(cell.bgImg), imm: { center: 'CENTER', tile: 'TILE' }[cell.bgMode] || 'TOTAL' } : {}), ...(cell.diag ? { dg: cell.diag, dc: (cell.dgc || '#000000').toUpperCase(), dw: pxToBorderMM(cell.dgw || 1) } : {}) }
         : { l: side({ style: 'solid', width: 1 }), r: side({ style: 'solid', width: 1 }), t: side({ style: 'solid', width: 1 }), b: side({ style: 'solid', width: 1 }), f: null };
       const key = JSON.stringify(k);
       if (!borderFills.has(key)) borderFills.set(key, { id: BASE_BF + borderFills.size, k });
@@ -118,6 +119,7 @@ const HWPX = (() => {
       for (const r of runs) {
         if (r.img) { flush(); x += `<hp:run charPrIDRef="${charPrId(lastStyle)}">${picXml(r.img)}<hp:t/></hp:run>`; continue; }
         if (r.pageHide) { flush(); const f = r.pageHide; x += `<hp:run charPrIDRef="${charPrId(lastStyle)}"><hp:ctrl><hp:pageHiding hideHeader="${f.includes('h') ? 1 : 0}" hideFooter="${f.includes('f') ? 1 : 0}" hideMasterPage="0" hideBorder="0" hideFill="0" hidePageNum="${f.includes('p') ? 1 : 0}"/></hp:ctrl></hp:run>`; continue; }
+        if (r.autoNum) { flush(); lastStyle = r; x += `<hp:run charPrIDRef="${charPrId(r)}"><hp:t>그림 </hp:t><hp:ctrl><hp:autoNum num="1" numType="${r.autoNum}"><hp:autoNumFormat type="DIGIT" userChar="" prefixChar="" suffixChar="" supscript="0"/></hp:autoNum></hp:ctrl><hp:t/></hp:run>`; continue; }
         if (r.newNum) { flush(); x += `<hp:run charPrIDRef="${charPrId(lastStyle)}"><hp:ctrl><hp:newNum num="${r.newNum}" numType="PAGE"/></hp:ctrl></hp:run>`; continue; }
         if (r.shape) { flush(); x += `<hp:run charPrIDRef="${charPrId(lastStyle)}">${shapeXml(r.shape)}<hp:t/></hp:run>`; continue; }
         if (r.text != null) {
@@ -159,7 +161,9 @@ const HWPX = (() => {
         + `<hc:img binaryItemIDRef="${bin}" bright="0" contrast="0" effect="REAL_PIC" alpha="0"/><hp:effects/>`
         + `<hp:sz width="${w}" widthRelTo="ABSOLUTE" height="${hh}" heightRelTo="ABSOLUTE" protect="0"/>`
         + posXml
-        + (img.om ? outMarginOf(img) : `<hp:outMargin left="${inline || floating ? 0 : 283}" right="${inline || floating ? 0 : 283}" top="0" bottom="0"/>`) + '<hp:shapeComment/></hp:pic>';
+        + (img.om ? outMarginOf(img) : `<hp:outMargin left="${inline || floating ? 0 : 283}" right="${inline || floating ? 0 : 283}" top="0" bottom="0"/>`)
+        + (img.caption ? `<hp:caption side="${img.caption.side === 'top' ? 'TOP' : 'BOTTOM'}" fullSz="0" width="${w}" gap="850" lastWidth="${w}"><hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="TOP" linkListIDRef="0" linkListNextIDRef="0" textWidth="${w}" textHeight="0" hasTextRef="0" hasNumRef="0"><hp:p id="${nid()}" paraPrIDRef="${paraPrId(img.caption.para)}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">${runsXml(img.caption.runs, img.caption.cs)}</hp:p></hp:subList></hp:caption>` : '')
+        + (img.name ? `<hp:shapeComment>${escXml('그림입니다.\n원본 그림의 이름: ' + img.name)}</hp:shapeComment>` : '<hp:shapeComment/>') + '</hp:pic>';
     }
     // 배치 → textWrap / pos
     function wrapAttr(o) {
@@ -211,7 +215,7 @@ const HWPX = (() => {
         .replace(/ textWrap="\w+" textFlow="\w+"/, '')
         .replace('<hp:offset x="0" y="0"/>', `<hp:offset x="${x}" y="${y}"/>`)
         .replace('<hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/>', `<hc:transMatrix e1="1" e2="0" e3="${x}" e4="0" e5="1" e6="${y}"/>`)
-        .replace(/<hp:sz [^>]*\/><hp:pos [^>]*\/><hp:outMargin [^>]*\/>(<hp:shapeComment\/>)?(<\/hp:\w+>)$/, '$2');
+        .replace(/<hp:sz [^>]*\/><hp:pos [^>]*\/><hp:outMargin [^>]*\/>(<hp:caption[\s\S]*?<\/hp:caption>)?(<hp:shapeComment\/>|<hp:shapeComment>[\s\S]*?<\/hp:shapeComment>)?(<\/hp:\w+>)$/, '$3');
     }
     // 개체 묶음 → hp:container
     function containerXml(g, level = 0) {
@@ -263,6 +267,11 @@ const HWPX = (() => {
         + `<hp:sz width="${w}" widthRelTo="ABSOLUTE" height="${hh}" heightRelTo="ABSOLUTE" protect="0"/>`
         + posXmlOf(sh) + outMarginOf(sh) + `</hp:${tag}>`;
     }
+    // 누리글 전용: 셀 배경 그림의 원본·채우기 방식을 표 설명에 적어 둠 (다시 열면 셀 크기를 바꿔도 그림 전체가 맞춰지도록)
+    function bgMetaXml(t) {
+      const list = t.cells.filter((c) => c.bgMeta && c.bgMeta.url && binFor(c.bgMeta.url)).map((c) => ({ r: c.r, c: c.c, m: c.bgMeta.m, f: c.bgMeta.f, g: c.bgMeta.g, b: binFor(c.bgMeta.url) }));
+      return list.length ? `<hp:shapeComment>${escXml(BG_META + JSON.stringify(list))}</hp:shapeComment>` : '';
+    }
     function tableXml(t) {
       const tw = t.widths.reduce((a, b) => a + b, 0);
       const W = U.px2hwp(tw), H = U.px2hwp(t.heights.reduce((a, b) => a + b, 0));
@@ -270,7 +279,7 @@ const HWPX = (() => {
       let x = `<hp:tbl id="${nid()}" zOrder="${++zSeq}" numberingType="TABLE" textWrap="${wrapAttr(t)}" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="${floating ? 'NONE' : 'CELL'}" repeatHeader="0" rowCnt="${t.nr}" colCnt="${t.nc}" cellSpacing="0" borderFillIDRef="${bfId(null)}" noAdjust="0">`
         + `<hp:sz width="${W}" widthRelTo="ABSOLUTE" height="${H}" heightRelTo="ABSOLUTE" protect="0"/>`
         + posXmlOf(t, t.align)
-        + outMarginOf(t) + marginXml('inMargin', t.im, [141, 510, 141, 510]);
+        + outMarginOf(t) + bgMetaXml(t) + marginXml('inMargin', t.im, [141, 510, 141, 510]);
       for (let r = 0; r < t.nr; r++) {
         x += '<hp:tr>';
         for (const c of t.cells.filter((c) => c.r === r).sort((a, b) => a.c - b.c)) {
@@ -355,7 +364,8 @@ const HWPX = (() => {
       return `<hh:borderFill id="${id}" threeD="0" shadow="0" centerLine="NONE" breakCellSeparateLine="0"><hh:slash type="${up ? 'CENTER' : 'NONE'}" Crooked="0" isCounter="0"/><hh:backSlash type="${down ? 'CENTER' : 'NONE'}" Crooked="0" isCounter="0"/>`
         + s('leftBorder', k.l) + s('rightBorder', k.r) + s('topBorder', k.t) + s('bottomBorder', k.b)
         + (k.dg ? `<hh:diagonal type="SOLID" width="${k.dw}" color="${k.dc}"/>` : '<hh:diagonal type="SOLID" width="0.1 mm" color="#000000"/>')
-        + (k.f ? `<hc:fillBrush><hc:winBrush faceColor="${k.f}" hatchColor="#999999" alpha="0"/></hc:fillBrush>` : '')
+        + (k.f || k.im ? '<hc:fillBrush>' + (k.f ? `<hc:winBrush faceColor="${k.f}" hatchColor="#999999" alpha="0"/>` : '')
+          + (k.im ? `<hc:imgBrush mode="${k.imm}"><hc:img binaryItemIDRef="${k.im}" bright="0" contrast="0" effect="REAL_PIC" alpha="0"/></hc:imgBrush>` : '') + '</hc:fillBrush>' : '')
         + '</hh:borderFill>';
     }).join('');
     header = header.replace(/<hh:borderFills itemCnt="(\d+)">([\s\S]*?)<\/hh:borderFills>/,
@@ -575,9 +585,12 @@ const HWPX = (() => {
       const side = (n) => { const e = kid(b, n); return e ? { type: e.getAttribute('type'), width: e.getAttribute('width'), color: e.getAttribute('color') } : null; };
       const wb = desc(b, 'winBrush')[0];
       const face = wb ? wb.getAttribute('faceColor') : null;
+      const ib = desc(b, 'imgBrush')[0];
+      const ibImg = ib && desc(ib, 'img')[0];
       ctx.borderFill[b.getAttribute('id')] = {
         left: side('leftBorder'), right: side('rightBorder'), top: side('topBorder'), bottom: side('bottomBorder'),
         fill: face && face !== 'none' && !/^#?FFFFFFFF$/i.test(face) ? face : null,
+        img: ibImg ? { ref: ibImg.getAttribute('binaryItemIDRef'), mode: ib.getAttribute('mode') || 'TOTAL' } : null,
         diag: (() => {
           const sl = kid(b, 'slash'), bs = kid(b, 'backSlash');
           const up = sl && sl.getAttribute('type') && sl.getAttribute('type') !== 'NONE';
@@ -903,7 +916,39 @@ const HWPX = (() => {
     if (!w || !hh) { const s2 = kid(pic, 'sz'); if (s2) { w = U.hwp2px(num(s2.getAttribute('width'))); hh = U.hwp2px(num(s2.getAttribute('height'))); } }
     const { wrap, extra } = wrapOf(pic);
     const style = w && hh ? ` style="width:${Math.round(w)}px;height:${Math.round(hh)}px"` : '';
-    return `<img src="${url}"${style}${wrap ? ` data-wrap="${wrap}"` : ''}${extra}${lookAttrs(pic, wrap)}>`;
+    // 한글이 적어 두는 개체 설명: "원본 그림의 이름: 사진.jpg"
+    const cm = kid(pic, 'shapeComment');
+    const nm = cm && /원본 그림의 이름\s*:\s*([^\r\n]+)/.exec(cm.textContent || '');
+    const nameAttr = nm ? ` data-name="${escHtml(nm[1].trim().split(/[\\/]/).pop())}"` : '';
+    const imgHtml = `<img src="${url}"${style}${wrap ? ` data-wrap="${wrap}"` : ''}${extra}${lookAttrs(pic, wrap)}${nameAttr}>`;
+    const cap = kid(pic, 'caption');
+    if (!cap) return imgHtml;
+    return `<span class="figure" contenteditable="false" data-cap="${cap.getAttribute('side') === 'TOP' ? 'top' : 'bottom'}"${w ? ` style="width:${Math.round(w)}px"` : ''}>${imgHtml}${captionHtml(cap, ctx)}</span>`;
+  }
+  // 캡션: 글과 그림 번호(autoNum) → span.figcap
+  function captionHtml(cap, ctx) {
+    const sub = kid(cap, 'subList');
+    let inner = '', align = '';
+    kids(sub || cap, 'p').forEach((p, i) => {
+      if (i) inner += '<br>';
+      const pp = ctx.paraPr[p.getAttribute('paraPrIDRef')];
+      if (!i && pp) align = { CENTER: 'center', RIGHT: 'right' }[pp.align] || '';
+      for (const run of kids(p, 'run')) {
+        const css = charCss(ctx.charPr[run.getAttribute('charPrIDRef')]);
+        let part = '';
+        for (const node of Array.from(run.children)) {
+          if (node.localName === 't') part += textOf(node);
+          else if (node.localName === 'ctrl' && kids(node, 'autoNum').some((n) => (n.getAttribute('numType') || '') === 'PICTURE')) {
+            // 앞에 적힌 "그림 " 글자는 번호 표시가 대신함
+            part = part.replace(/그림\s*$/, '');
+            if (!part && /그림\s*(<\/span>)?$/.test(inner)) inner = inner.replace(/그림\s*(<\/span>)?$/, '$1');
+            part += '<span class="fignum" contenteditable="false"></span>';
+          }
+        }
+        if (part) inner += css ? `<span style="${css}">${part}</span>` : part;
+      }
+    });
+    return `<span class="figcap" contenteditable="true"${align ? ` style="text-align:${align}"` : ''}>${keepSpaces(inner) || ' '}</span>`;
   }
   // 개체 모양 (바깥/안 여백, 그림 테두리, 그림자) → data-*
   function lookAttrs(node, wrap, dt, isTable) {
@@ -1078,6 +1123,12 @@ const HWPX = (() => {
     const pos = kid(tbl, 'pos');
     const ha = pos ? pos.getAttribute('horzAlign') : 'LEFT';
     const tw2 = wrapOf(tbl, true);
+    // 누리글이 적어 둔 셀 배경 그림 원본
+    const bgMeta = {};
+    const scm = kid(tbl, 'shapeComment');
+    if (scm && (scm.textContent || '').startsWith(BG_META)) {
+      try { for (const m of JSON.parse(scm.textContent.slice(BG_META.length))) bgMeta[m.r + ',' + m.c] = m; } catch { /* 무시 */ }
+    }
     // 표 가로 위치: 글자처럼 취급한 표는 그 문단의 정렬을, 아니면 가로 정렬·가로 위치 값을 따름
     const asChar = pos && pos.getAttribute('treatAsChar') === '1';
     let hAlign = asChar ? ({ CENTER: 'CENTER', RIGHT: 'RIGHT' }[pp && pp.align] || 'LEFT') : ha;
@@ -1111,6 +1162,16 @@ const HWPX = (() => {
             }
           }
           if (bf.fill) st.push(`background-color:${bf.fill}`);
+          const meta = bgMeta[c.r + ',' + c.c];
+          const bgu = bf.img && ctx.images[bf.img.ref];
+          if (meta && ctx.images[meta.b]) {
+            st.push(`background-image:url(${ctx.images[meta.b]})`);
+            tdAttr += ` data-bgmode="${meta.m === 'one' ? 'one' : 'cover'}"` + (meta.m === 'one' ? ` data-bgfit="${meta.f || 'stretch'}" data-bggid="${meta.g || 'g0'}"` : '');
+          } else if (bgu) {
+            const m = bf.img.mode;
+            st.push(`background-image:url(${bgu})`);
+            tdAttr += ` data-bgmode="${/^TILE/.test(m) ? 'tile' : /^(CENTER|LEFT|RIGHT)/.test(m) ? 'center' : 'stretch'}"`;
+          }
         }
         if (bf && bf.diag) tdAttr += ` data-diag="${bf.diag.dir}" data-dgc="${bf.diag.color}" data-dgw="${bf.diag.width}"`;
         if (c.tc.getAttribute('hasMargin') === '1') {
