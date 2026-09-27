@@ -238,20 +238,22 @@ const Fmt = {
   async copyOrPasteShape() {
     const obj = Img.selected;
     if (obj) {
-      let act = 'copy';
+      const targets = Img.selection().filter((o) => o.isConnected);   // Ctrl+누르기로 고른 개체 모두
+      const many = targets.length > 1;
+      let act = many && this.copiedObj ? 'paste' : 'copy';
       if (this.copiedObj) {
         const v = await Dialog.form('모양 복사 (개체)', [
-          { name: 'act', label: '할 일', type: 'select', options: [['paste', '복사해 둔 개체 모양을 이 개체에 적용'], ['copy', '이 개체의 모양을 새로 복사']], value: 'paste' },
+          { name: 'act', label: '할 일', type: 'select', options: [['paste', many ? `복사해 둔 개체 모양을 고른 개체 ${targets.length}개에 적용` : '복사해 둔 개체 모양을 이 개체에 적용'], ['copy', '이 개체의 모양을 새로 복사']], value: 'paste' },
         ], { okLabel: '확인', width: 420 });
         if (!v) return;
         act = v.act;
       }
       if (act === 'copy') { this.copiedObj = Look.copy(obj); status('개체 모양(테두리·그림자·여백·선·면)을 복사했습니다. 다른 개체를 선택하고 Alt+C를 누르면 적용됩니다.'); return; }
       History.checkpoint();
-      Look.paste(obj, this.copiedObj);
+      for (const t of targets) Look.paste(t, this.copiedObj);
       Img.drawBox();
       App.changed();
-      status('복사한 개체 모양을 적용했습니다.');
+      status(many ? `복사한 개체 모양을 ${targets.length}개에 적용했습니다.` : '복사한 개체 모양을 적용했습니다.');
       return;
     }
     const r = Sel.range();
