@@ -138,6 +138,8 @@ body.show-marks #marks, body.show-paramarks #marks { display: block; }
 #editor img.selected { outline: 2px solid var(--accent); }
 /* 캡션 달린 그림: span.figure 안에 그림과 캡션. 배치(data-wrap)는 그림에 적고 겉 상자가 따라감 */
 #editor { counter-reset: fig; }
+/* 한글의 빈칸 폭: '글꼴에 어울리는 빈칸'을 쓰지 않으면 빈칸이 글자 크기의 절반 → 보통 글꼴의 빈칸(약 0.28em)보다 넓음 */
+#editor, #editor * { word-spacing: 0.22em; }
 #editor .figure { display: inline-flex; flex-direction: column; vertical-align: bottom; text-indent: 0; max-width: 100%; }
 #editor .figure[data-cap="top"] { flex-direction: column-reverse; }
 #editor .figure > img { margin: 0 !important; float: none !important; position: static !important; display: block; }
@@ -248,6 +250,15 @@ body.no-guides #editor .pagebreak::after { display: block; top: 6px; border-top:
 
 /* page guides */
 #page-guides { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+#page-cover { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+/* 표 고르기·옮기기 */
+body.tbl-move #editor, body.tbl-move #editor * { cursor: move !important; }
+#editor table.tbl-sel { outline: 2px solid var(--accent); outline-offset: 3px; }
+.tbl-drop { position: absolute; height: 0; border-top: 2px solid var(--accent); z-index: 5; pointer-events: none; }
+/* 쪽 여백 모서리 표시 (한글처럼 본문 네 귀퉁이만) */
+#page-guides .pg-corner { position: absolute; width: 14px; height: 14px; border: 0 solid #b3b9c3; }
+@media print { #page-guides .pg-corner { display: none; } }
+#page-cover .pg-split { position: absolute; border-bottom: 1px solid #000; }
 #page-guides .pg-line { position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed #b3b9c3; }
 #page-guides .pg-lbl { position: absolute; right: 6px; transform: translateY(-50%); background: #fff; color: #98a2b3; font: 10px var(--ui-font); padding: 0 4px; }
 #page-guides .pg-hf { position: absolute; color: #9aa3b0; font: 9pt var(--doc-font); white-space: nowrap; overflow: hidden; }

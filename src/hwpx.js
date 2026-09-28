@@ -183,7 +183,7 @@ const HWPX = (() => {
       }
       const inline = w === 'inline';
       // 가로 위치를 옮긴 표 (불러온 문서): 글자처럼 취급하지 않고 단 왼쪽에서 떨어진 거리로
-      if (o.t === 'table' && inline && o.shift > 0) return `<hp:pos treatAsChar="0" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="${U.px2hwp(o.shift)}"/>`;
+      if (o.t === 'table' && inline && (o.shift > 0 || o.vshift > 0)) return `<hp:pos treatAsChar="0" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="${o.shift > 0 ? 'LEFT' : ({ center: 'CENTER', right: 'RIGHT' }[o.align] || 'LEFT')}" vertOffset="${U.px2hwp(o.vshift || 0)}" horzOffset="${U.px2hwp(o.shift || 0)}"/>`;
       const horz = { left: 'LEFT', right: 'RIGHT', center: 'CENTER' }[inline ? inlineAlign || 'left' : w] || 'LEFT';
       return `<hp:pos treatAsChar="${inline ? 1 : 0}" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="${horz}" vertOffset="0" horzOffset="0"/>`;
     }
@@ -349,7 +349,14 @@ const HWPX = (() => {
       if (pn.start > 1) secPr = secPr.replace(/(<hp:startNum [^>]*page=")\d+(")/, `$1${pn.start}$2`);
     }
     const firstRun = `<hp:run charPrIDRef="0">${secPr}${ctrls}</hp:run>${pnRun}`;
-    const body = model.blocks.map((b, i) => paraXml(b, i === 0 ? firstRun : '')).join('');
+    // 같은 문단에 붙어 있던 표는 앞 표의 문단 안에 이어 적음 (한글 쪽 배치 유지)
+    let body = '';
+    model.blocks.forEach((b, i) => {
+      const prev = model.blocks[i - 1];
+      if (b.t === 'table' && b.samepara && prev && prev.t === 'table' && body.endsWith('<hp:t/></hp:run></hp:p>')) {
+        body = body.slice(0, -'</hp:p>'.length) + `<hp:run charPrIDRef="0">${tableXml(b)}<hp:t/></hp:run></hp:p>`;
+      } else body += paraXml(b, i === 0 ? firstRun : '');
+    });
     const section = xmlDecl + secRootOpen + body + '</hs:sec>';
 
     // ---- header.xml ----
@@ -597,6 +604,8 @@ const HWPX = (() => {
           const down = bs && bs.getAttribute('type') && bs.getAttribute('type') !== 'NONE';
           if (!up && !down) return null;
           const dg = kid(b, 'diagonal');
+          // 한글은 대각선 모양(hh:diagonal)이 없거나 NONE이면 대각선을 그리지 않음
+          if (!dg || !dg.getAttribute('type') || dg.getAttribute('type') === 'NONE') return null;
           return { dir: up && down ? 'both' : up ? 'up' : 'down', color: (dg && dg.getAttribute('color')) || '#000000', width: borderMMToPx(dg && dg.getAttribute('width')) };
         })(),
       };
@@ -686,6 +695,7 @@ const HWPX = (() => {
         cur = ''; hasContent = false;
       };
       let lastCp = null;
+      let tblInPara = 0;
       // 문단 번호·글머리표: 번호를 글자로 넣음 (한글의 자동 번호 모양 그대로 보이게)
       const head = headText(pp && pp.heading, ctx);
       if (head) {
@@ -709,7 +719,10 @@ const HWPX = (() => {
           else if (n === 'lineBreak') { cur += '<br>'; hasContent = true; }
           else if (n === 'tbl') {
             flushPara(false);
-            out.push(tableHtml(node, ctx, pp));
+            // 한 문단에 붙은 두 번째 이후 표 (앞 표가 여러 쪽에 걸치면 한글은 다음 쪽에서 시작)
+            let th = tableHtml(node, ctx, pp);
+            if (tblInPara++ && !cur) th = th.replace('<table', '<table data-samepara="1"');
+            out.push(th);
           } else if (n === 'pic') {
             cur += picHtml(node, ctx);
             hasContent = true;
@@ -1143,8 +1156,11 @@ const HWPX = (() => {
       else shift = off;
       shift = Math.max(0, Math.round(shift));
     }
+    // 세로 위치: 문단 기준으로 아래로 띄운 거리 (한 문단에 표가 여러 개면 앞 표 아래로 쌓이고 그만큼 띄움)
+    let vshift = 0;
+    if (!asChar && !tw2.wrap && pos && (pos.getAttribute('vertRelTo') || 'PARA') === 'PARA') vshift = Math.max(0, Math.round(U.hwp2px(sdim(pos.getAttribute('vertOffset')))));
     const cls = !tw2.wrap && hAlign === 'CENTER' ? ' class="tbl-center"' : !tw2.wrap && hAlign === 'RIGHT' ? ' class="tbl-right"' : '';
-    let html = `<table${cls}${tw2.wrap ? ` data-wrap="${tw2.wrap}"` : ''}${tw2.extra}${lookAttrs(tbl, tw2.wrap, null, true)} ${shift ? ` data-shift="${shift}"` : ''} style="width:${Math.round(widths.reduce((a, b) => a + b, 0))}px${shift ? `;margin-left:${shift}px` : ''}"><colgroup>${widths.map((w) => `<col style="width:${Math.round(w * 10) / 10}px">`).join('')}</colgroup><tbody>`;
+    let html = `<table${cls}${tw2.wrap ? ` data-wrap="${tw2.wrap}"` : ''}${tw2.extra}${lookAttrs(tbl, tw2.wrap, null, true)} ${shift ? ` data-shift="${shift}"` : ''}${vshift ? ` data-vshift="${vshift}"` : ''} style="width:${Math.round(widths.reduce((a, b) => a + b, 0))}px${shift ? `;margin-left:${shift}px` : ''}"><colgroup>${widths.map((w) => `<col style="width:${Math.round(w * 10) / 10}px">`).join('')}</colgroup><tbody>`;
     for (let r = 0; r < nrows; r++) {
       html += `<tr${heights[r] ? ` style="height:${Math.round(heights[r])}px"` : ''}>`;
       for (const c of cells.filter((x) => x.r === r).sort((a, b) => a.c - b.c)) {

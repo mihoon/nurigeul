@@ -533,6 +533,103 @@ const Table = {
     }
   },
 
+  // ---------- 표 밖으로 (Shift+Esc) ----------
+  exitAfter() {
+    const td = Sel.closest('td, th') || (this.block.active() ? this.block.cells()[0] : null);
+    if (!td) return false;
+    const t = td.closest('table');
+    this.block.clear();
+    let next = t.nextElementSibling;
+    while (next && (next.classList.contains('pagebreak') || next.classList.contains('colbreak') || next.getAttribute('contenteditable') === 'false')) next = next.nextElementSibling;
+    if (next && /^(UL|OL)$/.test(next.tagName)) next = next.querySelector('li') || next;
+    if (!next || next.tagName === 'TABLE' || !/^(P|H[1-6]|DIV|LI)$/.test(next.tagName)) {
+      next = h('p', {}, h('br'));
+      t.after(next);
+    }
+    Sel.editor.focus({ preventScroll: true });
+    Sel.caretInto(next);
+    App.scrollToSelection && App.scrollToSelection();
+    return true;
+  },
+
+  // ---------- 표 고르기·옮기기 (표 바깥 테두리 바로 바깥을 누름) ----------
+  selected: null,
+  select(t) {
+    this.deselect();
+    this.selected = t;
+    t.classList.add('tbl-sel');
+    this.block.clear();
+    window.getSelection().removeAllRanges();
+    status('표를 골랐습니다. 끌면 옮겨지고, Delete: 표 지우기, Esc: 고르기 풀기. 표 안을 누르면 글자를 고칠 수 있습니다.');
+  },
+  deselect() {
+    if (this.selected) this.selected.classList.remove('tbl-sel');
+    this.selected = null;
+  },
+  // 점(x,y)이 어느 표의 바깥 테두리 바로 바깥(7px 안)인지
+  tableRimAt(x, y) {
+    const ts = Array.from(Sel.editor.querySelectorAll('table')).reverse(); // 안쪽 표 먼저
+    for (const t of ts) {
+      const r = t.getBoundingClientRect();
+      const out = 7, inn = 1;
+      const inOuter = x >= r.left - out && x <= r.right + out && y >= r.top - out && y <= r.bottom + out;
+      const inInner = x > r.left - inn && x < r.right + inn && y > r.top - inn && y < r.bottom + inn;
+      if (inOuter && !inInner) return t;
+    }
+    return null;
+  },
+  startMove(e, t) {
+    const z = App.zoom || 1;
+    if (Shapes.isFloatingTable(t)) { Shapes.gripTable = t; Shapes.startTableMove(e); return; }
+    const x0 = e.clientX, y0 = e.clientY;
+    const shift0 = +t.dataset.shift || 0;
+    const aligned = t.classList.contains('tbl-center') || t.classList.contains('tbl-right');
+    const left0 = (t.getBoundingClientRect().left - Sel.editor.getBoundingClientRect().left) / z;
+    const maxShift = Math.max(0, Sel.editor.clientWidth - t.offsetWidth);
+    let moved = false, drop = null;
+    const guide = h('div', { class: 'tbl-drop no-print' });
+    const move = (ev) => {
+      const dx = (ev.clientX - x0) / z, dy = (ev.clientY - y0) / z;
+      if (!moved && Math.abs(dx) + Math.abs(dy) < 4) return;
+      if (!moved) { History.checkpoint(); moved = true; $('#page').append(guide); }
+      // 가로: 왼쪽에서 떨어진 거리 (표 안의 표는 제외)
+      if (t.parentElement === Sel.editor && Math.abs(dx) >= 2) {
+        const nx = Math.round(Math.max(0, Math.min(maxShift, (aligned ? left0 : shift0) + dx)));
+        t.classList.remove('tbl-center', 'tbl-right');
+        if (nx > 0) { t.dataset.shift = nx; t.style.marginLeft = nx + 'px'; } else { delete t.dataset.shift; t.style.marginLeft = ''; }
+      }
+      // 세로: 놓을 자리(문단 사이) 표시
+      drop = null;
+      if (t.parentElement === Sel.editor && Math.abs(dy) > 12) {
+        const kids = Array.from(Sel.editor.children).filter((c) => c !== t && !c.classList.contains('pagebreak'));
+        let best = null;
+        for (const c of kids) {
+          const r = c.getBoundingClientRect();
+          if (ev.clientY < r.top + r.height / 2) { best = { el: c, before: true, y: r.top }; break; }
+          best = { el: c, before: false, y: r.bottom };
+        }
+        if (best && !(best.before && best.el === t.nextElementSibling) && !(!best.before && best.el === t.previousElementSibling)) drop = best;
+      }
+      if (drop) {
+        const pr = $('#page').getBoundingClientRect(), er = Sel.editor.getBoundingClientRect();
+        guide.style.cssText = `top:${(drop.y - pr.top) / z}px;left:${(er.left - pr.left) / z}px;width:${er.width / z}px`;
+        guide.hidden = false;
+      } else guide.hidden = true;
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      guide.remove();
+      if (!moved) return;
+      if (drop) { if (drop.before) drop.el.before(t); else drop.el.after(t); Para.ensure(); }
+      Look.apply(t);
+      this.select(t);
+      App.changed();
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  },
+
   // ---------- 셀 배경 그림 ----------
   // each: 셀마다 같은 그림 / one: 선택한 셀들을 한 장처럼 (그림을 잘라 셀마다 나눠 넣음)
   async applyBgImage(cells, url, mode, span) {
@@ -772,13 +869,40 @@ Table.initMouse = function () {
   }
   ed.addEventListener('mousemove', (e) => {
     if (drag || cellDrag) return;
+    const rim = e.buttons ? null : Table.tableRimAt(e.clientX, e.clientY);
+    document.body.classList.toggle('tbl-move', !!rim);
+    if (rim) { document.body.classList.remove('col-resize', 'row-resize'); return; }
     const eg = edgeAt(e);
     document.body.classList.toggle('col-resize', !!eg && eg.type === 'col');
     document.body.classList.toggle('row-resize', !!eg && eg.type === 'row');
   });
   ed.addEventListener('mouseleave', () => { if (!drag) document.body.classList.remove('col-resize', 'row-resize'); });
+  // 본문 폭을 꽉 채운 표는 바깥 테두리 바깥이 쪽 여백(편집 영역 밖)이라 쪽 전체에서도 확인
+  const pageEl = $('#page');
+  pageEl.addEventListener('mousemove', (e) => {
+    if (drag || cellDrag || ed.contains(e.target) || e.buttons) return;
+    document.body.classList.toggle('tbl-move', !!Table.tableRimAt(e.clientX, e.clientY));
+  });
+  pageEl.addEventListener('mouseleave', () => document.body.classList.remove('tbl-move'));
+  pageEl.addEventListener('mousedown', (e) => {
+    if (e.button !== 0 || ed.contains(e.target)) return;
+    const rim = Table.tableRimAt(e.clientX, e.clientY);
+    if (!rim) return;
+    e.preventDefault();
+    e.stopPropagation();
+    Table.select(rim);
+    Table.startMove(e, rim);
+  }, true);
   ed.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
+    const rim = Table.tableRimAt(e.clientX, e.clientY);
+    if (rim) {
+      e.preventDefault();
+      Table.select(rim);
+      Table.startMove(e, rim);
+      return;
+    }
+    if (Table.selected) Table.deselect();
     const eg = edgeAt(e);
     if (eg) {
       e.preventDefault();

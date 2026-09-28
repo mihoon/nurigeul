@@ -218,7 +218,7 @@ const Model = {
     const g = Table.grid(table);
     const z = App.zoom || 1;
     const trs = rowsOf(table);
-    const heights = trs.map((tr) => Math.max(parseFloat(tr.style.height) || 0, tr.getBoundingClientRect().height / z));
+    const heights = trs.map((tr) => Math.max(parseFloat(tr.style.height) || 0, tr.getBoundingClientRect().height / z - ((App.rowSplit && App.rowSplit.get(tr)) || 0)));
     let align = 'left';
     if (table.classList.contains('tbl-center')) align = 'center';
     else if (table.classList.contains('tbl-right')) align = 'right';
@@ -247,7 +247,7 @@ const Model = {
       };
     });
     const wrap = table.dataset.wrap || 'inline';
-    const out = { t: 'table', nr: g.nr, nc: g.nc, widths: g.widths, heights, align, cells, wrap, shift: align === 'left' ? +table.dataset.shift || 0 : 0, ...Look.model(table) };
+    const out = { t: 'table', nr: g.nr, nc: g.nc, widths: g.widths, heights, align, cells, wrap, shift: align === 'left' ? +table.dataset.shift || 0 : 0, vshift: +table.dataset.vshift || 0, samepara: !!table.dataset.samepara, ...Look.model(table) };
     if (wrap === 'front' || wrap === 'behind') { out.x = parseFloat(table.style.left) || 0; out.y = parseFloat(table.style.top) || 0; }
     return out;
   },

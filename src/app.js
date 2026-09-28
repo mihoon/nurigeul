@@ -450,13 +450,51 @@ const App = {
     });
     let shift = 0, lastBottom = 0;
     const rules = [];
+    const splits = [];
+    let prevTbl = null;
     this.blockPage = new WeakMap();
+    this.rowSplit = new WeakMap();
     kids.forEach((b, i) => {
       const e = m[i];
       if (e.out) return;
       const top = e.top + shift;
       const pk = Math.floor(top / pitch + 1e-6);
       const cEnd = pk * pitch + CH;
+      // 표: 한글처럼 줄 단위로 나눠 다음 쪽으로 이어 감 (쪽 경계에 걸친 줄은 통째로 다음 쪽 맨 위로)
+      if (paged && b.tagName === 'TABLE' && b.tBodies.length === 1 && !b.querySelector(':scope > tr') && b.tBodies[0].rows.length) {
+        const sel = `#editor > :nth-child(${i + 1})`;
+        const rows = Array.from(b.tBodies[0].rows);
+        const r0 = rows[0];
+        let gap = 0;
+        if (top > pk * pitch + 1 && (top >= cEnd - 0.5 || (top + r0.offsetTop + r0.offsetHeight > cEnd + 0.5 && r0.offsetHeight <= CH))) gap = (pk + 1) * pitch - top;
+        // 한글: 같은 문단에 붙은 앞 표가 여러 쪽에 걸쳐 있으면 이 표는 다음 쪽에서 시작
+        if (!gap && b.dataset.samepara && prevTbl && prevTbl.el === b.previousElementSibling && prevTbl.end > prevTbl.start && top > pk * pitch + 1) gap = (pk + 1) * pitch - top;
+        // 다음 쪽으로 넘어간 표는 한글처럼 본문 맨 위에 붙임 (문단 기준 세로 띄움은 원래 쪽에서만 의미가 있음)
+        const drop = gap > 0 ? Math.min(+b.dataset.vshift || 0, e.mt) : 0;
+        const mt = e.mt - drop;
+        if (gap > 0) rules.push(`${sel}{margin-top:${(mt + gap).toFixed(1)}px !important}`);
+        let extra = 0;
+        rows.forEach((tr, j) => {
+          if (!j) return;
+          const rTop = top + mt + gap + tr.offsetTop + extra;
+          const rH = tr.offsetHeight;
+          const k = Math.floor(rTop / pitch + 1e-6);
+          if (rTop + rH > k * pitch + CH + 0.5 && rH <= CH && rTop > k * pitch + 1) {
+            const g = (k + 1) * pitch - rTop;
+            rules.push(`${sel} > tbody > tr:nth-child(${j + 1}) > :is(td,th)::before{content:"";display:block;height:${g.toFixed(1)}px}`);
+            rules.push(`${sel} > tbody > tr:nth-child(${j + 1}){height:${(rH + g).toFixed(1)}px !important}`);
+            const bw = Math.max(1, ...Array.from(tr.cells).map((c) => parseFloat(getComputedStyle(c).borderTopWidth) || 0));
+            splits.push({ tbl: b, y: rTop + bw / 2 + 2, k, to: (k + 1) * pitch });
+            this.rowSplit.set(tr, g);
+            extra += g;
+          }
+        });
+        this.blockPage.set(b, Math.floor((top + gap) / pitch + 1e-6));
+        prevTbl = { el: b, start: Math.floor((top + gap) / pitch + 1e-6), end: Math.floor((top + gap + e.h - drop + extra - 1) / pitch + 1e-6) };
+        shift += gap + extra - drop;
+        lastBottom = Math.max(lastBottom, top + gap + e.h - drop + extra);
+        return;
+      }
       if (b.classList.contains('pagebreak')) {
         // 쪽 맨 위에 있는 쪽 나누기는 빈 쪽을 만들지 않음
         const atStart = top > 0 && top - pk * pitch < 2;
@@ -481,6 +519,19 @@ const App = {
       lastBottom = Math.max(lastBottom, top + gap + e.h);
     });
     gapCss.textContent = rules.length ? `@media screen{${rules.join('')}}` : '';
+    // 표가 나뉜 자리: 쪽 아래 여백·쪽 사이·다음 쪽 위 여백에 걸친 표 부분을 가려서 나뉜 곳이 보이게
+    let cover = $('#page-cover');
+    if (!cover) { cover = h('div', { id: 'page-cover', class: 'no-print', 'aria-hidden': 'true' }); page.append(cover); }
+    cover.innerHTML = '';
+    const padL = U.mm2px(p.left), paperH = U.mm2px(p.height);
+    for (const sp of splits) {
+      const y1 = padTop + sp.y, y2 = padTop + sp.to;
+      const a1 = sp.k * pitch + paperH - y1, a2 = a1 + this.PAGE_GAP;
+      cover.append(h('div', { class: 'pg-split', style: {
+        top: y1 + 'px', height: Math.max(0, y2 - y1) + 'px', left: padL + sp.tbl.offsetLeft - 2 + 'px', width: sp.tbl.offsetWidth + 4 + 'px',
+        background: `linear-gradient(to bottom, #fff 0 ${a1}px, var(--workspace) ${a1}px ${a2}px, #fff ${a2}px)`,
+      } }));
+    }
     const contentH = Math.max(lastBottom, ed.scrollHeight, 1);
     const pages = Math.max(1, Math.floor((contentH - 1) / pitch) + 1);
     ed.style.minHeight = (pages - 1) * pitch + CH + 'px';
@@ -494,6 +545,15 @@ const App = {
     const pno = PageNum.opts();
     const paperTop = (k) => (paged ? k * pitch : 0);
     const footY = (k) => (paged ? k * pitch : (pages - 1) * CH) + padTop + CH + U.mm2px(p.bottom) - 4;
+    // 본문 네 귀퉁이 표시 (한글 2024처럼 모서리만)
+    const cornerL = U.mm2px(p.left), cornerR = U.mm2px(p.width - p.right);
+    const corners = (T, B) => {
+      const c = (x, y, sides) => { const d = h('div', { class: 'pg-corner', style: { left: x + 'px', top: y + 'px' } }); sides.forEach((sd) => (d.style['border' + sd + 'Width'] = '1px')); guides.append(d); };
+      if (T != null) { c(cornerL - 14, T - 14, ['Right', 'Bottom']); c(cornerR, T - 14, ['Left', 'Bottom']); }
+      if (B != null) { c(cornerL - 14, B, ['Right', 'Top']); c(cornerR, B, ['Left', 'Top']); }
+    };
+    if (paged) for (let k = 0; k < pages; k++) corners(k * pitch + padTop, k * pitch + padTop + CH);
+    else corners(padTop, padTop + pages * CH);
     for (let k = 0; k < pages; k++) {
       if (paged && k > 0) {
         const y = k * pitch - this.PAGE_GAP;
@@ -582,6 +642,8 @@ const App = {
     $('#zoomer').style.zoom = z;
     $('#zoom-range').value = Math.round(z * 100);
     $('#zoom-val').textContent = Math.round(z * 100) + '%';
+    // 배율에 따라 글자 줄바꿈이 조금 달라지므로 쪽 나눔(표가 나뉘는 자리)을 다시 계산
+    if (this.layoutSoon) this.layoutSoon();
     if (Img.selected) Img.drawBox();
     Ruler.drawSoon();
     if (Marks.updateSoon) Marks.updateSoon();
@@ -946,6 +1008,17 @@ App.onKeyDown = function (e) {
     clearTimeout(App._chordT);
     App._chordT = setTimeout(() => App.cancelChord(), 2500);
     return;
+  }
+
+  // ----- 표 밖으로 나가기 (한글: Shift+Esc) -----
+  if (k === 'Shift+Escape' && (Sel.closest('td, th') || Table.block.active()) && !Sel.closest('.tb-body')) { stop(); Table.exitAfter(); return; }
+  // ----- 고른 표 (바깥 테두리를 눌러 고름) -----
+  if (Table.selected) {
+    const t = Table.selected;
+    if (!t.isConnected) Table.deselect();
+    else if (k === 'Delete' || k === 'Backspace') { stop(); History.checkpoint(); const nx = t.nextElementSibling || t.previousElementSibling; Table.deselect(); t.remove(); Para.ensure(); if (nx && nx.isConnected) Sel.caretInto(nx); App.changed(); return; }
+    else if (k === 'Escape' || k === 'Shift+Escape') { stop(); Table.deselect(); const nx = t.nextElementSibling; if (nx) Sel.caretInto(nx); return; }
+    else if (!/^(Ctrl|Alt|Shift)$/.test(k)) Table.deselect();
   }
 
   // ----- 칸 블록 (F4) -----
