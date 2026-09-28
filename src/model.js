@@ -107,14 +107,19 @@ const Model = {
     // 목록 들여쓰기 반영
     const list = el.closest && el.closest('ul,ol');
     if (list && Sel.editor.contains(list)) ml += px2pt(getComputedStyle(list).paddingLeft);
+    // 셀 안 첫/마지막 문단의 줄 간격 여분 보정(--lsx)은 모양이 아니므로 되돌려 계산
+    const lsx0 = el.style && el.style.getPropertyValue('--lsx') ? (parseFloat(el.style.getPropertyValue('--lsx')) || 0) / 2 : 0;
+    const inCell = lsx0 && el.parentElement && /^(TD|TH)$/.test(el.parentElement.tagName);
+    const lsxT = inCell && el === el.parentElement.firstElementChild ? lsx0 : 0;
+    const lsxB = inCell && el === el.parentElement.lastElementChild ? lsx0 : 0;
     return {
       align,
       ml,
       mr: px2pt(cs.marginRight),
       indent: px2pt(cs.textIndent),
       lh: el === Sel.editor || el.tagName === 'TD' ? 160 : lineHeightPct(el),
-      before: px2pt((parseFloat(cs.marginTop) || 0) + (el === Sel.editor || el.tagName === 'TD' || el.tagName === 'TH' ? 0 : parseFloat(cs.paddingTop) || 0) + 'px'),
-      after: px2pt((parseFloat(cs.marginBottom) || 0) + (el === Sel.editor || el.tagName === 'TD' || el.tagName === 'TH' ? 0 : parseFloat(cs.paddingBottom) || 0) + 'px'),
+      before: px2pt((parseFloat(cs.marginTop) || 0) + lsxT + (el === Sel.editor || el.tagName === 'TD' || el.tagName === 'TH' ? 0 : parseFloat(cs.paddingTop) || 0) + 'px'),
+      after: px2pt((parseFloat(cs.marginBottom) || 0) + lsxB + (el === Sel.editor || el.tagName === 'TD' || el.tagName === 'TH' ? 0 : parseFloat(cs.paddingBottom) || 0) + 'px'),
       style: (el.dataset && el.dataset.style) || null,
       tabs: el === Sel.editor ? [] : TabStops.parse(el),
       cs: el === Sel.editor ? null : this.charStyle(el.tagName === 'TD' || el.tagName === 'TH' ? el : (el.querySelector('span') && !el.textContent.trim() ? el.querySelector('span') : el)),

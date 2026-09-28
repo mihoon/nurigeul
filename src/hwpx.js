@@ -550,7 +550,7 @@ const HWPX = (() => {
         shade: shade && shade !== 'none' && !/^#?FFFFFFFF$/i.test(shade) ? shade : null,
         bold: !!kid(c, 'bold'), italic: !!kid(c, 'italic'),
         underline: !!ul && ul.getAttribute('type') !== 'NONE',
-        strike: !!so && so.getAttribute('shape') && so.getAttribute('shape') !== 'NONE',
+        strike: !!so && /^(SOLID|DASH|DOT|DASH_DOT|DASH_DOT_DOT|LONG_DASH|CIRCLE|DOUBLE_SLIM|SLIM_THICK|THICK_SLIM|SLIM_THICK_SLIM|WAVE|DOUBLE_WAVE|DOUBLEWAVE)$/.test(so.getAttribute('shape') || ''), // 한글은 취소선 없음을 shape="3D"로 적기도 함
         sup: !!kid(c, 'supscript'), sub: !!kid(c, 'subscript'),
         spacing: sp ? num(sp.getAttribute('hangul')) : 0,
         ratio: (() => { const r = kid(c, 'ratio'); return r ? num(r.getAttribute('hangul'), 100) : 100; })(),
@@ -911,9 +911,10 @@ const HWPX = (() => {
     if (!img) return '';
     const url = ctx.images[img.getAttribute('binaryItemIDRef')];
     if (!url) return '';
-    const sz = kid(pic, 'curSz') || kid(pic, 'sz');
-    let w = sz ? U.hwp2px(num(sz.getAttribute('width'))) : 0, hh = sz ? U.hwp2px(num(sz.getAttribute('height'))) : 0;
-    if (!w || !hh) { const s2 = kid(pic, 'sz'); if (s2) { w = U.hwp2px(num(s2.getAttribute('width'))); hh = U.hwp2px(num(s2.getAttribute('height'))); } }
+    // 크기: hp:sz(실제 보이는 크기)를 먼저, 없으면 curSz. 부호 없는 32비트로 적힌 음수(뒤집힌 그림)는 절댓값으로
+    const dim = (el, n) => { if (!el) return 0; let v = num(el.getAttribute(n), 0); if (v >= 2147483648) v -= 4294967296; v = Math.abs(v); return v > 0 && v < 10000000 ? U.hwp2px(v) : 0; };
+    const szEl = kid(pic, 'sz'), cur = kid(pic, 'curSz');
+    let w = dim(szEl, 'width') || dim(cur, 'width'), hh = dim(szEl, 'height') || dim(cur, 'height');
     const { wrap, extra } = wrapOf(pic);
     const style = w && hh ? ` style="width:${Math.round(w)}px;height:${Math.round(hh)}px"` : '';
     // 한글이 적어 두는 개체 설명: "원본 그림의 이름: 사진.jpg"
@@ -1000,8 +1001,10 @@ const HWPX = (() => {
     return { wrap, extra };
   }
   // 개체 묶음 (hp:container) → 묶음 span
+  // 크기 값: 부호 없는 32비트로 적힌 음수는 절댓값, 터무니없이 큰 값은 0
+  function sdim(v) { v = num(v, 0); if (v >= 2147483648) v -= 4294967296; v = Math.abs(v); return v < 10000000 ? v : 0; }
   function groupHtml(node, ctx, inner) {
-    const sz = (el, n) => { const e = kid(el, n); return e ? [U.hwp2px(num(e.getAttribute('width'))), U.hwp2px(num(e.getAttribute('height')))] : null; };
+    const sz = (el, n) => { const e = kid(el, n); return e ? [U.hwp2px(sdim(e.getAttribute('width'))), U.hwp2px(sdim(e.getAttribute('height')))] : null; };
     const cur = sz(node, 'curSz') || sz(node, 'sz') || [100, 100];
     const org = sz(node, 'orgSz') || cur;
     const sx = org[0] ? cur[0] / org[0] : 1, sy = org[1] ? cur[1] / org[1] : 1;
@@ -1033,10 +1036,10 @@ const HWPX = (() => {
   function shapeHtml(node, ctx) {
     const n = node.localName;
     const sz = kid(node, 'curSz') || kid(node, 'sz');
-    let w = sz ? U.hwp2px(num(sz.getAttribute('width'))) : 0, hh = sz ? U.hwp2px(num(sz.getAttribute('height'))) : 0;
+    let w = sz ? U.hwp2px(sdim(sz.getAttribute('width'))) : 0, hh = sz ? U.hwp2px(sdim(sz.getAttribute('height'))) : 0;
     const s2 = kid(node, 'sz');
-    if (!w && s2) w = U.hwp2px(num(s2.getAttribute('width')));
-    if (!hh && s2 && n !== 'line') hh = U.hwp2px(num(s2.getAttribute('height')));
+    if (!w && s2) w = U.hwp2px(sdim(s2.getAttribute('width')));
+    if (!hh && s2 && n !== 'line') hh = U.hwp2px(sdim(s2.getAttribute('height')));
     const ls = kid(node, 'lineShape');
     const d = {};
     let sw = 1, stroke = '#000000';

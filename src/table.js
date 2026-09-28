@@ -596,6 +596,26 @@ const Table = {
       td.style.backgroundRepeat = g.fit === 'tile' ? 'repeat' : 'no-repeat';
     }
   },
+  // 한글처럼 셀 안 첫 줄 위와 마지막 줄 아래에는 줄 간격 여분을 두지 않음 (줄 간격 300%라도 셀이 커지지 않게)
+  fitCellLines(root) {
+    for (const td of (root || Sel.editor).querySelectorAll('td, th')) {
+      const ps = Array.from(td.children).filter((c) => c.tagName === 'P');
+      ps.forEach((p, i) => {
+        if (i !== 0 && i !== ps.length - 1) { if (p.style.getPropertyValue('--lsx')) p.style.removeProperty('--lsx'); return; }
+        const cs = getComputedStyle(p);
+        const lh = parseFloat(cs.lineHeight), pf = parseFloat(cs.fontSize);
+        let extra = 0;
+        if (lh && pf && lh / pf > 1.05) {
+          let fs = 0;
+          for (const t of p.querySelectorAll('span')) if (t.textContent.trim()) fs = Math.max(fs, parseFloat(getComputedStyle(t).fontSize) || 0);
+          if (!fs) fs = pf;
+          extra = Math.max(0, (lh / pf - 1) * fs);
+        }
+        const v = extra ? extra.toFixed(1) + 'px' : '';
+        if (p.style.getPropertyValue('--lsx') !== v) { if (v) p.style.setProperty('--lsx', v); else p.style.removeProperty('--lsx'); }
+      });
+    }
+  },
   layoutBgAll() { for (const t of Sel.editor.querySelectorAll('table')) if (t.querySelector('[data-bgmode="one"]')) this.layoutBg(t); },
   // 저장용: 화면에 보이는 대로 셀 크기의 그림으로 굽기 (HWPX는 셀마다 '크기에 맞추어'만 되므로)
   bakeBg(td) {

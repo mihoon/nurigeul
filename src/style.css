@@ -157,6 +157,8 @@ body.show-marks #marks, body.show-paramarks #marks { display: block; }
 #editor td[data-bgmode="tile"] { background-size: auto; background-repeat: repeat; background-position: 0 0; }
 #editor td[data-bgmode="cover"] { background-size: cover; background-repeat: no-repeat; background-position: center; }
 #editor td[data-bgmode="one"] { background-repeat: no-repeat; }
+#editor :is(td, th) > p:first-child { margin-top: calc(var(--lsx, 0px) * -0.5); }
+#editor :is(td, th) > p:last-child { margin-bottom: calc(var(--lsx, 0px) * -0.5); }
 /* 새 쪽 번호 조판 부호 */
 #editor .pnnew { display: inline-block; width: 0; height: 1em; position: relative; vertical-align: baseline; user-select: none; }
 #editor .pnnew::after { display: none; content: "새 쪽번호 " attr(data-start); position: absolute; left: 0; top: -0.9em; white-space: nowrap; font: 9px var(--ui-font); color: #fff; background: #7a5cc2; border-radius: 3px; padding: 0 3px; line-height: 1.4; pointer-events: none; }

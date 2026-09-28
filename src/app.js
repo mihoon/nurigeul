@@ -424,6 +424,7 @@ const App = {
     this.applyBaseFont();
     Ratio.render();
     Img.syncFigs();
+    Table.fitCellLines();
     Table.layoutBgAll();
     Lists.syncMarkers();
     TabStops.layoutAll();
