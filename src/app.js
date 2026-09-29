@@ -229,8 +229,20 @@ const App = {
     if (z !== 1) { this.zoom = 1; $('#zoomer').style.zoom = 1; }
     this.layout();
     this.applyPrintStyle();
+    // 커서(깜박이는 세로줄)·선택 영역이 인쇄·PDF·이미지에 찍히지 않도록 잠시 떼어 둠
+    const sel = window.getSelection(), saved = [];
+    for (let i = 0; i < sel.rangeCount; i++) saved.push(sel.getRangeAt(i).cloneRange());
+    const act = document.activeElement, ws = $('#workspace'), st = ws ? ws.scrollTop : 0;
+    sel.removeAllRanges(); if (act && act.blur) act.blur();
+    document.body.classList.add('printing');
     try { return await fn(); } finally {
+      document.body.classList.remove('printing');
       if (z !== 1) { this.zoom = z; $('#zoomer').style.zoom = z; this.layout(); }
+      try {
+        if (act && act.focus) act.focus({ preventScroll: true });
+        const s2 = window.getSelection(); s2.removeAllRanges(); saved.forEach((r) => s2.addRange(r));
+        if (ws) ws.scrollTop = st;
+      } catch (e) { /* ignore */ }
     }
   },
   async renderPDF() {

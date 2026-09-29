@@ -419,3 +419,9 @@ kbd { font-family: Consolas, monospace; background: #eef1f6; border: 1px solid #
   #print-cover { display: block !important; }
   #editor p { orphans: 1; widows: 1; }
 }
+
+/* 인쇄·PDF·이미지 저장 중에는 커서·선택 표시를 숨김 */
+body.printing #editor, body.printing #editor * { caret-color: transparent !important; }
+body.printing #mcarets, body.printing .mcaret { display: none !important; }
+body.printing ::selection { background: transparent !important; }
+@media print { #editor, #editor * { caret-color: transparent !important; } ::selection { background: transparent !important; } #mcarets { display: none !important; } }
