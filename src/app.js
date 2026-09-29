@@ -467,7 +467,9 @@ const App = {
   applyBaseFont() {
     const f = this.baseFont().replace(/["']/g, '');
     const generic = /명조|바탕|Batang|Myeongjo|Serif|Times|궁서/i.test(f) ? 'serif' : 'sans-serif';
-    const stack = `"${f}", "함초롬바탕", "HCR Batang", "바탕", "Batang", "Noto Serif KR", ${generic}`;
+    if (typeof fontAlias === 'function') fontAlias(f); // 굵기 붙은 글꼴 이름(나눔고딕 ExtraBold 등)도 찾게
+    const wm = /^(.+?)\s*(Thin|Hairline|ExtraLight|UltraLight|Light|Book|Medium|SemiBold|DemiBold|ExtraBold|UltraBold|Bold|Heavy|Black)$/i.exec(f);
+    const stack = `"${f}", ${wm ? `"${wm[1].trim()}", ` : ''}"함초롬바탕", "HCR Batang", "바탕", "Batang", "Noto Serif KR", ${generic}`;
     const ed = Sel.editor;
     if (ed.style.fontFamily !== stack) ed.style.fontFamily = stack;
     const sz = this.baseSize() + 'pt';
@@ -538,8 +540,20 @@ const App = {
     }
   },
   layout() {
+    // 지난번 문단 쪽 나눔 빈 자리 지우기
+    const oldPgs = Sel.editor.querySelectorAll('span.pgs, wbr.pgsw');
+    if (oldPgs.length) Ratio.keep(() => { oldPgs.forEach((x) => { const par = x.parentNode; x.remove(); if (par) par.normalize(); }); return true; });
     this.applyBaseFont();
+    // 붙여 넣은 글 등에 들어 있는 굵기 붙은 글꼴 이름(나눔고딕 ExtraBold 등)도 찾을 수 있게
+    if (typeof fontAlias === 'function') for (const el of Sel.editor.querySelectorAll('[style*="font-family"]')) { const f = firstFamily(el.style.fontFamily); if (f) fontAlias(f); }
+    // 내어쓰기가 왼쪽 여백보다 크면 첫 줄이 본문 밖으로 나감 → 한글처럼 첫 줄은 왼쪽 여백에서 시작하게 맞춤
+    for (const b of Sel.editor.querySelectorAll('[style*="text-indent"]')) {
+      const cs = getComputedStyle(b);
+      const ti = parseFloat(cs.textIndent) || 0, ml = parseFloat(cs.marginLeft) || 0;
+      if (ti < 0 && ml + ti < -0.5) b.style.marginLeft = Math.round(U.px2pt(-ti) * 10) / 10 + 'pt';
+    }
     Ratio.render();
+    LineLock.render();
     Justify.render();
     Img.syncFigs();
     Table.fitCellLines();
@@ -572,6 +586,43 @@ const App = {
     this.printTol = TOLT;
     this.blockPage = new WeakMap();
     this.rowSplit = new WeakMap();
+    // 문단의 줄 정보 (줄 위·아래: 문단 위에서부터, 줄이 시작하는 글자 위치) — 두 번 계산하지 않게 기억
+    const lineCache = new Map();
+    const pageSplits = [];
+    const lineInfo = (b) => {
+      if (lineCache.has(b)) return lineCache.get(b);
+      const z = this.zoom || 1;
+      const br = b.getBoundingClientRect();
+      const cs = getComputedStyle(b);
+      const cTop = (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.paddingTop) || 0);
+      const cBot = b.offsetHeight - (parseFloat(cs.borderBottomWidth) || 0) - (parseFloat(cs.paddingBottom) || 0);
+      const starts = []; // {g: 글자 윗변(문단 기준), node, off}
+      const rg = document.createRange();
+      const tw = document.createTreeWalker(b, NodeFilter.SHOW_TEXT);
+      let t, lastTop = -1e9;
+      while ((t = tw.nextNode())) {
+        if (t.parentElement.closest('.nobj, .pnnew, .pnhide')) continue;
+        const v = t.nodeValue;
+        for (let q = 0; q < v.length; q++) {
+          if (v[q] === '\u200b') continue;
+          rg.setStart(t, q); rg.setEnd(t, q + 1);
+          const rs = rg.getClientRects();
+          const r = rs[rs.length - 1];
+          if (!r || (!r.width && !r.height)) continue;
+          const gt = (r.top - br.top) / z;
+          if (gt > lastTop + 2) { starts.push({ g: gt, node: t, off: q }); lastTop = gt; }
+        }
+      }
+      let lines = [];
+      if (starts.length) {
+        const g0 = starts[0].g;
+        lines = starts.map((st, n) => ({ top: cTop + st.g - g0, node: n ? st.node : null, off: st.off }));
+        lines.forEach((ln, n) => { ln.bottom = n + 1 < lines.length ? lines[n + 1].top : cBot; });
+      }
+      const info = { lines };
+      lineCache.set(b, info);
+      return info;
+    };
     // 쪽 나눔 계산: 화면(쪽 사이 틈 포함 pitch)과 인쇄(쪽마다 본문 높이 + 넘침 허용 TOLT, 틈 없음) 두 번 계산
     const paginate = (pitch, print) => {
     let shift = 0, lastBottom = 0;
@@ -674,19 +725,44 @@ const App = {
         return;
       }
       let gap = 0;
-      if (paged && top > pk * pitch + 1) {
-        if (top >= cEnd - 0.5) gap = (pk + 1) * pitch - top; // 쪽 여백에서 시작하면 다음 쪽으로
-        else if (top + e.h > cEnd + 0.5 && e.h <= CH) gap = (pk + 1) * pitch - top; // 쪽 끝에 걸치면 통째로 다음 쪽으로
+      let pgs = 0; // 문단을 쪽 경계에서 줄 단위로 나눠 넣은 빈 자리 합
+      if (paged && top > pk * pitch + 1 && top >= cEnd - 0.5) gap = (pk + 1) * pitch - top; // 쪽 여백에서 시작하면 다음 쪽으로
+      else if (paged && top + e.h > cEnd + 0.5) {
+        // 한글처럼 문단을 줄 단위로 나눠 다음 쪽으로 이어 씀 (첫 줄부터 넘치면 문단째 넘김)
+        const L = /^(P|H[1-6])$/.test(b.tagName) ? lineInfo(b) : null;
+        let base = top, cut = [], splitDone = false;
+        if (L && L.lines.length > 1) {
+          let k = pk;
+          for (let li = 0; li < L.lines.length; li++) {
+            const ln = L.lines[li];
+            const lt = base + ln.top, lb = base + ln.bottom;
+            const ce = k * pitch + CH;
+            if (lb > ce + 0.5) {
+              if (li === 0) { if (top > pk * pitch + 1 && e.h <= CH) { cut = null; } break; }
+              if (!ln.node) { cut = null; break; }
+              const g = (k + 1) * pitch - lt;
+              // 인쇄: 쪽 끝까지만 채움(조금 모자라게) → 다음 줄이 들어가지 않아 브라우저가 다음 쪽으로 넘김. 남은 자리가 한 줄보다 작으면 그냥 넘어감
+              const hh = print ? g - 0.5 : g;
+              if (!print || hh >= (ln.bottom - ln.top) + 0.5) cut.push({ node: ln.node, off: ln.off, h: hh, print });
+              splitDone = true;
+              base += g; pgs += g; k++;
+            }
+          }
+        } else cut = null;
+        if (cut && splitDone) pageSplits.push(...cut);
+        else if (top > pk * pitch + 1 && e.h <= CH) { gap = (pk + 1) * pitch - top; pgs = 0; } // 쪽 끝에 걸치면 통째로 다음 쪽으로
+        else pgs = 0;
       }
       if (!print) this.blockPage.set(b, Math.floor((top + gap) / pitch + 1e-6));
       if (gap > 0) {
         const sel = `#editor > :nth-child(${i + 1})`;
+        // (문단도 ::before가 아닌 margin으로 띄움 — ::before가 첫 줄이 되면 내어쓰기·들여쓰기가 사라짐)
         if (print) rules.push(`${sel}{break-before:page}`);
-        else if (/^(P|H[1-6])$/.test(b.tagName)) rules.push(`${sel}::before{content:"";display:block;height:${gap.toFixed(1)}px}`);
         else rules.push(`${sel}{margin-top:${(e.mt + gap).toFixed(1)}px !important}`);
         shift += gap;
       }
-      lastBottom = Math.max(lastBottom, top + gap + e.h);
+      shift += pgs;
+      lastBottom = Math.max(lastBottom, top + gap + e.h + pgs);
     });
     return { rules, splits, lastBottom };
     };
@@ -694,6 +770,31 @@ const App = {
     const splits = scr.splits, lastBottom = scr.lastBottom;
     const PP = CH + TOLT;
     const prn = paged ? paginate(PP, true) : { rules: [], splits: [] };
+    // 문단을 나눈 자리에 빈 자리 넣기 — 화면용·인쇄용 따로
+    if (pageSplits.length) {
+      Ratio.keep(() => {
+        const byNode = new Map();
+        pageSplits.forEach((sp) => { if (!byNode.has(sp.node)) byNode.set(sp.node, []); byNode.get(sp.node).push(sp); });
+        let n = 0;
+        for (const [node, list] of byNode) {
+          list.sort((a, b2) => b2.off - a.off || (a.print ? 1 : -1));
+          for (const sp of list) {
+            if (!node.isConnected || sp.off > node.nodeValue.length) continue;
+            const after = sp.off > 0 ? node.splitText(sp.off) : node;
+            // [줄바꿈 가능][가로 전체·빈 자리 높이의 상자][줄바꿈 가능] → 상자가 한 줄을 통째로 차지해 다음 줄이 다음 쪽 맨 위로 감
+            // (float는 한글 줄 나눔 고정(nowrap) 문단에서 제자리에 놓이지 않아 인라인 상자를 씀)
+            const span = h('span', { class: 'pgs', contenteditable: 'false', 'data-n': ++n });
+            const w1 = document.createElement('wbr'); w1.className = 'pgsw';
+            const w2 = document.createElement('wbr'); w2.className = 'pgsw';
+            after.parentNode.insertBefore(w1, after);
+            after.parentNode.insertBefore(span, after);
+            after.parentNode.insertBefore(w2, after);
+            (sp.print ? prn : scr).rules.push(`#editor span.pgs[data-n="${n}"]{display:inline-block;vertical-align:top;width:100%;height:${sp.h.toFixed(1)}px;text-indent:0}`);
+          }
+        }
+        return true;
+      });
+    }
     gapCss.textContent = (scr.rules.length ? `@media screen{${scr.rules.join('')}}` : '') + (prn.rules.length ? `@media print{${prn.rules.join('')}}` : '');
     // 인쇄용 가림: 나뉜 표의 빈 부분(쪽 아래)을 가리고 다음 쪽 첫 줄 위에 선을 그음
     let pcover = $('#print-cover');
@@ -967,6 +1068,8 @@ App.bindEvents = function () {
   const ed = Sel.editor;
   const ws = $('#workspace');
   App.layoutSoon = debounce(() => App.layout(), 120);
+  // 글꼴 파일을 늦게 불러오면(local 글꼴 등) 글자 폭이 바뀌므로 쪽·줄 나눔을 다시 계산
+  if (document.fonts) document.fonts.addEventListener('loadingdone', () => App.layoutSoon());
   const statusSoon = debounce(() => { App.updateStatus(); App.updateToolbar(); Ruler.drawSoon(); }, 60);
 
   window.addEventListener('keydown', (e) => App.onKeyDown(e), true);

@@ -278,3 +278,11 @@ function readTextAuto(bytes) {
   if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder('utf-16be').decode(bytes);
   try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return new TextDecoder('euc-kr').decode(bytes); }
 }
+
+// 글자 묶음의 짧은 지문 (한글 줄 나눔 정보가 아직 그 글에 맞는지 확인용)
+function textHash(s) {
+  s = String(s).replace(/\u200b/g, '').replace(/\u00a0/g, ' ');
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(36) + '.' + s.length;
+}

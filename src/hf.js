@@ -57,6 +57,7 @@ const HF = {
   },
   fontStack(f) {
     f = (f || '함초롬바탕').replace(/["']/g, '');
+    if (typeof fontAlias === 'function') fontAlias(f);
     return `"${f}","함초롬바탕","HCR Batang","바탕",serif`;
   },
   cssFont(o) {

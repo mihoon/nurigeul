@@ -703,15 +703,20 @@ const HWPX = (() => {
       // 문단 글자 크기 = 그 문단에서 가장 큰 글자 (한글은 줄 높이를 실제 글자 크기로 계산.
       // 기본 10pt 그대로 두면 8pt 글자만 있는 줄도 10pt 줄 높이가 되어 표·문서가 길어짐)
       {
-        let mx = 0, last = 0;
+        let mx = 0, last = 0, mxFont = null, lastFont = null;
         for (const run of kids(p, 'run')) {
           const cp = ctx.charPr[run.getAttribute('charPrIDRef')];
           if (!cp || cp.sup || cp.sub) continue;
-          last = cp.size || 10;
-          if (Array.from(run.children).some((x) => (x.localName === 't' && textOf(x)) || x.localName === 'tab')) mx = Math.max(mx, last);
+          last = cp.size || 10; lastFont = cp.font || null;
+          if (Array.from(run.children).some((x) => (x.localName === 't' && textOf(x)) || x.localName === 'tab') && last > mx) { mx = last; mxFont = lastFont; }
         }
         const sz = mx || last;
-        if (sz && Math.abs(sz - 10) > 0.05) attrs = attrs.includes(' style="') ? attrs.replace(' style="', ` style="font-size:${sz}pt;`) : ` style="font-size:${sz}pt"` + attrs;
+        const pst = [];
+        if (sz && Math.abs(sz - 10) > 0.05) pst.push(`font-size:${sz}pt`);
+        // 문단 글꼴도 그 문단의 (가장 큰) 글자 글꼴로: 문단 기본 글꼴과 글자 글꼴의 기준선 위치가 다르면 줄 높이가 1~2px씩 커짐
+        const pf = mx ? mxFont : lastFont;
+        if (pf && pf !== App.defaultFont) pst.push(`font-family:${fontStack(pf).replace(/"/g, "'")}`);
+        if (pst.length) attrs = attrs.includes(' style="') ? attrs.replace(' style="', ` style="${pst.join(';')};`) : ` style="${pst.join(';')}"` + attrs;
       }
       let cur = '';
       let hasContent = false;
@@ -745,6 +750,35 @@ const HWPX = (() => {
             if (q > 0 && q < plain.length && /\S/.test(plain[q - 1]) && /\S/.test(plain[q])) set.add(q);
           }
           if (set.size) brk = set;
+        }
+      }
+      // 한글이 저장해 둔 줄 나눔 자리(lineseg)를 기억: 글이 그대로인 동안 누리글도 같은 자리에서만 줄을 바꿈 (LineLock)
+      if (!head) {
+        const runs = kids(p, 'run');
+        const chars = [];
+        let ok = runs.length > 0;
+        for (const r of runs) {
+          for (const c of Array.from(r.children)) {
+            if (c.localName !== 't') { ok = false; break; }
+            for (const n of Array.from(c.childNodes)) {
+              if (n.nodeType === 3) chars.push(...n.nodeValue);
+              else if (n.localName === 'lineBreak') chars.push('\n');
+              else { ok = false; break; }
+            }
+          }
+          if (!ok) break;
+        }
+        const lsa = kids(p, 'linesegarray')[0];
+        const segs = lsa ? kids(lsa, 'lineseg').map((ls) => +ls.getAttribute('textpos')) : [];
+        if (ok && segs.length > 1) {
+          const offs = [];
+          for (const q of segs) {
+            if (!(q > 0 && q < chars.length) || chars[q - 1] === '\n') continue;
+            let nl = 0;
+            for (let x = 0; x < q; x++) if (chars[x] === '\n') nl++;
+            offs.push(q - nl);
+          }
+          if (offs.length) attrs += ` data-hl="${offs.join(',')}" data-hh="${textHash(chars.filter((c) => c !== '\n').join(''))}"`;
         }
       }
       for (const run of kids(p, 'run')) {

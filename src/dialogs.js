@@ -234,13 +234,14 @@ const Dialogs = {
     const pt = (v) => Math.round(U.px2pt(parseFloat(v) || 0) * 10) / 10;
     return Dialog.form('문단 모양', [
       { name: 'align', label: '정렬 방식', type: 'select', value: st.align === 'start' ? 'justify' : st.align, options: [['justify', '양쪽 정렬'], ['left', '왼쪽 정렬'], ['center', '가운데 정렬'], ['right', '오른쪽 정렬'], ['distribute', '배분 정렬']] },
-      { name: 'left', label: '왼쪽 여백', type: 'number', value: pt(cs.marginLeft), step: 1, suffix: 'pt' },
+      // 한글처럼: 왼쪽 여백 = 첫 줄이 시작하는 자리 기준 (내어쓰기는 둘째 줄부터 그만큼 더 들어감)
+      { name: 'left', label: '왼쪽 여백', type: 'number', value: Math.max(0, Math.round((pt(cs.marginLeft) - Math.max(0, -pt(cs.textIndent))) * 10) / 10), step: 1, min: 0, suffix: 'pt' },
       { name: 'right', label: '오른쪽 여백', type: 'number', value: pt(cs.marginRight), step: 1, suffix: 'pt' },
       { name: 'indent', label: '첫 줄 (들여쓰기+/내어쓰기−)', type: 'number', value: pt(cs.textIndent), step: 1, suffix: 'pt' },
       { name: 'lineHeight', label: '줄 간격', type: 'number', value: st.lineHeight, min: 50, max: 500, step: 5, suffix: '%' },
       { name: 'before', label: '문단 위', type: 'number', value: Math.round((pt(cs.marginTop) + pt(cs.paddingTop)) * 10) / 10, step: 1, min: 0, suffix: 'pt' },
       { name: 'after', label: '문단 아래', type: 'number', value: Math.round((pt(cs.marginBottom) + pt(cs.paddingBottom)) * 10) / 10, step: 1, min: 0, suffix: 'pt' },
-    ], { okLabel: '설정', width: 400 });
+    ], { okLabel: '설정', width: 400 }).then((v) => (v ? { ...v, hwpLeft: true } : v));
   },
   async pageSetup() {
     const p = App.page;
@@ -500,7 +501,7 @@ const Dialogs = {
     Dialog.open({
       title: '누리글 정보', width: 420,
       body: h('div', { style: { lineHeight: 1.7 } },
-        h('div', { style: { fontSize: '18px', fontWeight: 'bold' } }, '누리글 1.5.36'),
+        h('div', { style: { fontSize: '18px', fontWeight: 'bold' } }, '누리글 1.5.40'),
         h('div', {}, '아래아한글 단축키 체계를 따르는 가벼운 문서 편집기'),
         h('div', { class: 'note' }, 'HWPX 열기/저장 · HWP 열기(HWPX로 변환) · DOCX/PDF 내보내기 · 표 · 그림 · 키 매크로 · 메일머지')),
       buttons: [{ label: '확인', primary: true }],

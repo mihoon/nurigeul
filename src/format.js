@@ -374,9 +374,20 @@ const Fmt = {
         b.classList.toggle('align-distribute', p.align === 'distribute');
         b.style.textAlign = p.align === 'distribute' ? '' : p.align;
       }
-      if (p.left != null) b.style.marginLeft = +p.left ? p.left + 'pt' : '';
+      if (p.hwpLeft) {
+        // 한글 모델: 왼쪽 여백 L(첫 줄 시작), 첫 줄 값 I → CSS margin-left = L + 내어쓰기, text-indent = I
+        const cs = getComputedStyle(b);
+        const I0 = U.px2pt(parseFloat(cs.textIndent) || 0), M0 = U.px2pt(parseFloat(cs.marginLeft) || 0);
+        const L = p.left != null ? Math.max(0, +p.left || 0) : Math.max(0, M0 - Math.max(0, -I0));
+        const I = p.indent != null ? +p.indent || 0 : I0;
+        const M = L + Math.max(0, -I);
+        b.style.marginLeft = M ? Math.round(M * 10) / 10 + 'pt' : '';
+        b.style.textIndent = I ? I + 'pt' : '';
+      } else {
+        if (p.left != null) b.style.marginLeft = +p.left ? p.left + 'pt' : '';
+        if (p.indent != null) b.style.textIndent = +p.indent ? p.indent + 'pt' : '';
+      }
       if (p.right != null) b.style.marginRight = +p.right ? p.right + 'pt' : '';
-      if (p.indent != null) b.style.textIndent = +p.indent ? p.indent + 'pt' : '';
       if (p.lineHeight != null) b.style.lineHeight = +p.lineHeight === 160 ? '' : String(p.lineHeight / 100);
       // 문단 위·아래는 안쪽 여백으로: 바깥 여백은 앞뒤 문단끼리 겹쳐(큰 쪽만) 보이므로 한글처럼 더해지게
       if (p.before != null) { b.style.marginTop = ''; b.style.paddingTop = +p.before ? p.before + 'pt' : ''; }
@@ -426,9 +437,32 @@ const Para = {
 function firstFamily(ff) {
   return (ff || '').split(',')[0].trim().replace(/^["']|["']$/g, '');
 }
+// "나눔고딕 ExtraBold"처럼 굵기가 붙은 글꼴 이름: Windows의 Chrome은 이런 이름을 글꼴 묶음(나눔고딕) 안의 한 굵기로만 알아서
+// 이름으로 찾지 못하고 다른 글꼴로 바뀌어 글자 폭이 달라짐 → @font-face local()로 그 글꼴 파일을 직접 가리킴
+const FONT_EN = { 나눔고딕: 'NanumGothic', 나눔명조: 'NanumMyeongjo', 나눔바른고딕: 'NanumBarunGothic', 나눔스퀘어: 'NanumSquare', 나눔스퀘어라운드: 'NanumSquareRound', 나눔스퀘어네오: 'NanumSquareNeo', 나눔바른펜: 'NanumBarunpen', 나눔고딕코딩: 'NanumGothicCoding', 맑은고딕: 'Malgun Gothic', '맑은 고딕': 'Malgun Gothic', 본고딕: 'Source Han Sans K', 노토산스: 'Noto Sans KR', 'Noto Sans KR': 'Noto Sans KR', 'Noto Sans CJK KR': 'Noto Sans CJK KR' };
+const FONT_WEIGHTS = { thin: 100, hairline: 100, extralight: 200, ultralight: 200, light: 300, regular: 400, book: 400, medium: 500, semibold: 600, demibold: 600, bold: 700, extrabold: 800, ultrabold: 800, heavy: 900, black: 900 };
+const fontAliasDone = new Set();
+function fontAlias(name) {
+  if (fontAliasDone.has(name)) return;
+  fontAliasDone.add(name);
+  const m = /^(.+?)\s*(Thin|Hairline|ExtraLight|UltraLight|Light|Book|Medium|SemiBold|DemiBold|ExtraBold|UltraBold|Bold|Heavy|Black)$/i.exec(name.trim());
+  if (!m) return;
+  const base = m[1].trim(), w = m[2], wKey = w.toLowerCase();
+  const en = FONT_EN[base] || (/^[\x20-\x7e]+$/.test(base) ? base : null);
+  const names = new Set([name, base + w, base + ' ' + w]);
+  if (en) { names.add(`${en} ${w}`); names.add(en.replace(/\s+/g, '') + w); names.add(en.replace(/\s+/g, '') + '-' + w); names.add(`${en} ${w[0].toUpperCase()}${w.slice(1).toLowerCase()}`); }
+  const src = [...names].map((n) => `local("${n.replace(/"/g, '')}")`).join(', ');
+  let st = document.getElementById('font-alias');
+  if (!st) { st = document.createElement('style'); st.id = 'font-alias'; document.head.append(st); }
+  st.textContent += `@font-face{font-family:"${name.replace(/"/g, '')}";src:${src};font-weight:100 900;}`;
+}
 function fontStack(name) {
   const generic = /명조|바탕|Batang|Myeongjo|Serif|Times|궁서/i.test(name) ? 'serif' : 'sans-serif';
-  return `"${name}", ${generic}`;
+  fontAlias(name);
+  const m = /^(.+?)\s*(Thin|Hairline|ExtraLight|UltraLight|Light|Book|Medium|SemiBold|DemiBold|ExtraBold|UltraBold|Bold|Heavy|Black)$/i.exec(name.trim());
+  // 굵기 붙은 이름을 못 찾으면 같은 묶음 이름(나눔고딕)으로라도 — 폭이 가장 비슷함
+  const fam = m ? `, "${m[1].trim()}"${FONT_EN[m[1].trim()] ? `, "${FONT_EN[m[1].trim()]}"` : ''}` : '';
+  return `"${name}"${fam}, ${generic}`;
 }
 function decoOf(el) {
   const res = { underline: false, strike: false, sup: false, sub: false };

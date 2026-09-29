@@ -87,3 +87,50 @@ const Justify = {
     css.textContent = rules.join('');
   },
 };
+
+// 한글 파일에서 불러온 문단: 한글이 저장해 둔 줄 나눔 자리(data-hl)에서만 줄을 바꿔 한글과 같은 모양으로 보이게 함.
+// 글을 고치면(지문 data-hh가 달라지면) 이 정보는 버리고 보통처럼 줄을 바꿈. 한 줄이 칸보다 길어지면(글꼴 차이) 이 문단은 보통 줄바꿈으로.
+const LineLock = {
+  render(root) {
+    root = root || Sel.editor;
+    if (App.composing) return;
+    const old = root.querySelectorAll('wbr.hlb');
+    const cand = root.querySelectorAll('p[data-hl]');
+    if (!old.length && !cand.length) return;
+    Ratio.keep(() => {
+      old.forEach((w) => { const par = w.parentNode; w.remove(); if (par) par.normalize(); });
+      root.querySelectorAll('p.hl-lock').forEach((p) => p.classList.remove('hl-lock'));
+      for (const p of root.querySelectorAll('p[data-hl]')) {
+        if (textHash(p.textContent) !== p.dataset.hh) { delete p.dataset.hl; delete p.dataset.hh; continue; }
+        const offs = p.dataset.hl.split(',').map(Number).filter((x) => x > 0).sort((a, b) => a - b);
+        // 글자 위치 → 텍스트 노드 위치 (ZWSP는 세지 않음)
+        const tw = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+        const at = [];
+        let t, n = 0, k = 0;
+        while ((t = tw.nextNode()) && k < offs.length) {
+          const v = t.nodeValue;
+          for (let q = 0; q < v.length && k < offs.length; q++) {
+            if (v[q] === '​') continue;
+            if (n === offs[k]) {
+              // 줄 끝 빈칸 앞에서 끊음 (nowrap에서는 줄 끝 빈칸도 폭에 들어가므로 — 빈칸은 다음 줄 맨 앞에서 없어짐)
+              let tq = q;
+              while (tq > 0 && /[ \u00a0]/.test(v[tq - 1])) tq--;
+              at.push([t, tq]); k++;
+            }
+            n++;
+          }
+        }
+        for (let i = at.length - 1; i >= 0; i--) {
+          const [node, q] = at[i];
+          const after = q > 0 ? node.splitText(q) : node;
+          const w = document.createElement('wbr');
+          w.className = 'hlb';
+          after.parentNode.insertBefore(w, after);
+        }
+        p.classList.add('hl-lock');
+        if (p.scrollWidth > p.clientWidth + 1) p.classList.remove('hl-lock'); // 우리 글꼴이 더 넓어 넘치면 보통 줄바꿈
+      }
+      return true;
+    });
+  },
+};

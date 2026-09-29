@@ -265,6 +265,8 @@ body.tbl-move #editor, body.tbl-move #editor * { cursor: move !important; }
 #page-guides .pg-corner { position: absolute; width: 14px; height: 14px; border: 0 solid #b3b9c3; }
 @media print { #page-guides .pg-corner { display: none; } }
 #page-cover .pg-split { position: absolute; border-bottom: 1px solid #000; }
+#editor span.pgs { display: none; }
+#editor p.hl-lock { white-space: nowrap; }
 #print-cover { display: none; position: absolute; left: 0; top: 0; right: 0; pointer-events: none; z-index: 2; }
 #print-cover .pg-split { position: absolute; background: #fff; border-bottom: 1px solid #000; box-sizing: border-box; }
 #page-guides .pg-line { position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed #b3b9c3; }
@@ -408,4 +410,5 @@ kbd { font-family: Consolas, monospace; background: #eef1f6; border: 1px solid #
   #editor td.cell-sel { background-image: none !important; }
   #editor img.selected { outline: none; }
   #print-cover { display: block !important; }
+  #editor p { orphans: 1; widows: 1; }
 }
