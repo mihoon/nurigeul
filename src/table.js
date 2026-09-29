@@ -278,7 +278,89 @@ const Table = {
     return true;
   },
 
+  // ---------- 표 나누기 / 붙이기 (한글: Ctrl+N,A / Ctrl+N,Z) ----------
+  // 커서가 있는 줄부터 아래를 새 표로 떼어 냄. 그 줄에 걸친 세로로 합친 셀은 위·아래로 갈라짐
+  splitTable() {
+    const td = this.block.active() ? this.block.cells()[0] : this.currentCell();
+    if (!td) { status('표 안에 커서를 두세요.'); return false; }
+    const table = td.closest('table');
+    const g = this.grid(table);
+    const cur = g.cells.find((x) => x.el === td);
+    const r = this.block.active() ? this.block.rect().r1 : cur.r;
+    if (r <= 0) { status('표의 첫 줄에서는 표를 나눌 수 없습니다.'); return false; }
+    this.block.clear();
+    const top = [], bot = [];
+    for (const x of g.cells) {
+      if (x.r + x.rs <= r) top.push(x);
+      else if (x.r >= r) bot.push({ ...x, r: x.r - r });
+      else {
+        // 나누는 줄에 걸친 셀: 위쪽은 원래 셀, 아래쪽은 같은 모양의 빈 셀
+        bot.push({ el: newCell(x.el), r: 0, c: x.c, rs: x.r + x.rs - r, cs: x.cs });
+        top.push({ ...x, rs: r - x.r });
+      }
+    }
+    const t2 = table.cloneNode(false);
+    t2.removeAttribute('id');
+    delete t2.dataset.vshift; delete t2.dataset.samepara;
+    this.rebuild({ table, cells: top, nr: r, nc: g.nc, widths: g.widths.slice(), heights: g.heights.slice(0, r) });
+    table.after(t2);
+    this.rebuild({ table: t2, cells: bot, nr: g.nr - r, nc: g.nc, widths: g.widths.slice(), heights: g.heights.slice(r) });
+    const first = bot.find((x) => x.el === td) ? td : t2.rows[0].cells[0];
+    Sel.caretInto(first.querySelector('p') || first);
+    return true;
+  },
+  // 커서가 있는 표와 바로 아래 표를 하나로 붙임 (사이의 빈 문단은 지움). 칸 경계가 다르면 칸을 나눠 맞춤
+  joinTable() {
+    const table = this.block.active() ? this.block.table : this.current();
+    if (!table) { status('표 안에 커서를 두세요.'); return false; }
+    const between = [];
+    let next = table.nextElementSibling;
+    while (next && next.tagName === 'P' && !next.textContent.trim() && !next.querySelector('img,table,.nobj,.pagebreak')) { between.push(next); next = next.nextElementSibling; }
+    if (!next || next.tagName !== 'TABLE') {
+      // 아래에 없으면 바로 위 표와 붙임
+      const up = [];
+      let prev = table.previousElementSibling;
+      while (prev && prev.tagName === 'P' && !prev.textContent.trim() && !prev.querySelector('img,table,.nobj,.pagebreak')) { up.push(prev); prev = prev.previousElementSibling; }
+      if (!prev || prev.tagName !== 'TABLE' || prev.parentElement !== table.parentElement) { status('바로 아래(또는 위)에 붙일 표가 없습니다.'); return false; }
+      return this.joinPair(prev, table, up);
+    }
+    if (next.parentElement !== table.parentElement) { status('바로 아래에 붙일 표가 없습니다.'); return false; }
+    return this.joinPair(table, next, between);
+  },
+  joinPair(a, b, between) {
+    this.block.clear();
+    const keep = Sel.closest('td, th');
+    const ga = this.grid(a), gb = this.grid(b);
+    const cum = (w) => { const X = [0]; w.forEach((v, i) => X.push(X[i] + v)); return X; };
+    const XA = cum(ga.widths);
+    let XB = cum(gb.widths);
+    const WA = XA[XA.length - 1], WB = XB[XB.length - 1];
+    // 전체 너비가 조금만 다르면 아래 표를 위 표 너비에 맞춤
+    if (Math.abs(WA - WB) > 0.5 && Math.abs(WA - WB) < WA * 0.1) XB = XB.map((x) => (x * WA) / WB);
+    // 거의 같은 경계는 위 표 경계로 맞춤
+    XB = XB.map((x) => { const near = XA.find((y) => Math.abs(y - x) < 3); return near != null ? near : x; });
+    const P = [];
+    for (const v of [...XA, ...XB].sort((p, q) => p - q)) if (!P.length || v - P[P.length - 1] > 0.5) P.push(v);
+    const ix = (v) => { let best = 0; P.forEach((p, i) => { if (Math.abs(p - v) < Math.abs(P[best] - v)) best = i; }); return best; };
+    const cells = [];
+    for (const x of ga.cells) { const c1 = ix(XA[x.c]), c2 = ix(XA[x.c + x.cs]); cells.push({ el: x.el, r: x.r, rs: x.rs, c: c1, cs: Math.max(1, c2 - c1) }); }
+    for (const x of gb.cells) { const c1 = ix(XB[x.c]), c2 = ix(XB[x.c + x.cs]); cells.push({ el: x.el, r: x.r + ga.nr, rs: x.rs, c: c1, cs: Math.max(1, c2 - c1) }); }
+    between.forEach((p) => p.remove());
+    b.remove();
+    this.rebuild({ table: a, cells, nr: ga.nr + gb.nr, nc: P.length - 1, widths: P.slice(1).map((p, i) => p - P[i]), heights: [...ga.heights, ...gb.heights] });
+    const t = keep && keep.isConnected ? keep : a.rows[0].cells[0];
+    Sel.caretInto(t.querySelector('p') || t);
+    return true;
+  },
+
   // ---------- 크기 ----------
+  // 쪽 나눔 때문에 늘려 둔 줄 높이(다음 쪽으로 밀린 간격)를 빼고 원래 높이를 재도록, 잠시 쪽 간격 규칙을 끄고 측정
+  natural(fn) {
+    const ss = ['page-gaps', 'jfy-css'].map((id) => document.getElementById(id)).filter((s) => s && !s.disabled);
+    if (!ss.length) return fn();
+    ss.forEach((s) => { s.disabled = true; });
+    try { return fn(); } finally { ss.forEach((s) => { s.disabled = false; }); }
+  },
   equalWidths() {
     const table = this.block.active() ? this.block.table : this.current();
     if (!table) return;
@@ -298,12 +380,15 @@ const Table = {
     const rows = trs.slice(rc.r1, rc.r2 + 1);
     if (rows.length < 2) return;
     const z = App.zoom || 1;
-    const total = rows.reduce((a, tr) => a + tr.getBoundingClientRect().height / z, 0);
-    // 글자 때문에 더 줄일 수 없는 최소 높이
-    const saved = rows.map((tr) => tr.style.height);
-    rows.forEach((tr) => (tr.style.height = '1px'));
-    const mins = rows.map((tr) => tr.getBoundingClientRect().height / z);
-    rows.forEach((tr, i) => (tr.style.height = saved[i]));
+    const { total, mins } = this.natural(() => {
+      const total = rows.reduce((a, tr) => a + tr.getBoundingClientRect().height / z, 0);
+      // 글자 때문에 더 줄일 수 없는 최소 높이
+      const saved = rows.map((tr) => tr.style.height);
+      rows.forEach((tr) => (tr.style.height = '1px'));
+      const mins = rows.map((tr) => tr.getBoundingClientRect().height / z);
+      rows.forEach((tr, i) => (tr.style.height = saved[i]));
+      return { total, mins };
+    });
     // 최소 높이보다 작아지는 줄은 최소 높이로 두고 나머지 줄끼리 나눔
     const fixed = new Set();
     let each = total / rows.length;
@@ -336,10 +421,8 @@ const Table = {
     let r1, r2;
     if (this.block.active()) ({ r1, r2 } = this.block.rect());
     else { const cur = g.cells.find((x) => x.el === this.currentCell()); r1 = cur.r; r2 = cur.r + cur.rs - 1; }
-    for (let r = r1; r <= r2; r++) {
-      const cur = trs[r].getBoundingClientRect().height / App.zoom;
-      trs[r].style.height = Math.max(10, Math.round(cur + dy)) + 'px';
-    }
+    const hs = this.natural(() => trs.map((tr) => tr.getBoundingClientRect().height / App.zoom));
+    for (let r = r1; r <= r2; r++) trs[r].style.height = Math.max(10, Math.round(hs[r] + dy)) + 'px';
   },
 
   // Alt+방향키: 표 전체 크기는 그대로, 선택한 칸/줄만 커지고 이웃이 줄어듦
@@ -362,7 +445,7 @@ const Table = {
     }
     if (dy) {
       const trs = rowsOf(table);
-      const hs = trs.map((tr) => tr.getBoundingClientRect().height / App.zoom);
+      const hs = this.natural(() => trs.map((tr) => tr.getBoundingClientRect().height / App.zoom));
       let a = rc.r2, b = rc.r2 + 1;
       if (b >= trs.length) { a = rc.r1; b = rc.r1 - 1; }
       if (b < 0) { status('표 전체가 선택되어 있어 크기를 나눌 줄이 없습니다.'); return; }
@@ -379,7 +462,7 @@ const Table = {
     const g = this.grid(table);
     const sel = new Set(this.block.cells());
     const trs = rowsOf(table);
-    const hs = trs.map((tr) => Math.max(parseFloat(tr.style.height) || 0, tr.getBoundingClientRect().height / App.zoom));
+    const hs = this.natural(() => trs.map((tr) => Math.max(parseFloat(tr.style.height) || 0, tr.getBoundingClientRect().height / App.zoom)));
     const X = [0]; g.widths.forEach((w, i) => X.push(X[i] + w));
     const Y = [0]; for (let i = 0; i < g.nr; i++) Y.push(Y[i] + (hs[i] || 20));
     const geo = g.cells.map((c) => ({ el: c.el, x0: X[c.c], x1: X[c.c + c.cs], y0: Y[c.r], y1: Y[c.r + c.rs] }));
@@ -942,14 +1025,13 @@ Table.initMouse = function () {
         const trs = rowsOf(table);
         const i = eg.top ? x.r - 1 : x.r + x.rs - 1;
         const tr = trs[i], next = trs[i + 1];
-        drag = { type: 'row', table, tr, h0: tr.getBoundingClientRect().height / App.zoom, y0: e.clientY };
+        drag = { type: 'row', table, tr, h0: Table.natural(() => tr.getBoundingClientRect().height / App.zoom), y0: e.clientY };
         // 안쪽 가로선: 위 줄이 커진 만큼 아래 줄이 줄어 표 높이는 그대로 (Shift: 위 줄만 바꿔 표가 커짐)
         if (next && !e.shiftKey) {
           const z = App.zoom || 1;
           const minOf = (row) => { const sv = row.style.height; row.style.height = '1px'; const m = row.getBoundingClientRect().height / z; row.style.height = sv; return m; };
           drag.next = next;
-          drag.n0 = next.getBoundingClientRect().height / z;
-          drag.tmin = minOf(tr); drag.nmin = minOf(next);
+          Table.natural(() => { drag.n0 = next.getBoundingClientRect().height / z; drag.tmin = minOf(tr); drag.nmin = minOf(next); });
         }
       }
       return;

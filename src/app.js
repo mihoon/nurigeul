@@ -44,6 +44,7 @@ const App = {
       if (s.showMarks) document.body.classList.add('show-marks');
       if (s.showParaMarks) document.body.classList.add('show-paramarks');
       if (s.noHRuler) document.body.classList.add('no-hruler');
+      if (s.noToolbar) document.body.classList.add('no-toolbar');
       if (s.noVRuler) document.body.classList.add('no-vruler');
       if (s.zoom) this.zoom = s.zoom;
       if (s.defaultFont) this.defaultFont = s.defaultFont;
@@ -222,10 +223,19 @@ const App = {
       toast('DOCX로 내보냈습니다.');
     } catch (e) { console.error(e); Dialog.alert('DOCX 내보내기 실패: ' + e.message); }
   },
+  // 인쇄·PDF는 100% 배율로 쪽 나눔을 다시 계산한 뒤 출력 (배율에 따라 줄바꿈이 조금 달라지므로)
+  async atPrintZoom(fn) {
+    const z = this.zoom;
+    if (z !== 1) { this.zoom = 1; $('#zoomer').style.zoom = 1; }
+    this.layout();
+    this.applyPrintStyle();
+    try { return await fn(); } finally {
+      if (z !== 1) { this.zoom = z; $('#zoomer').style.zoom = z; this.layout(); }
+    }
+  },
   async renderPDF() {
     this.prepareForOutput();
-    this.applyPrintStyle();
-    return window.native.printToPDF();
+    return this.atPrintZoom(() => window.native.printToPDF());
   },
   async exportPdf() {
     const p = await window.native.saveDialog('pdf', (this.baseName(this.fileName) || `${T("문서")}${this.untitled}`) + '.pdf');
@@ -236,10 +246,74 @@ const App = {
       toast('PDF로 저장했습니다.');
     } catch (e) { Dialog.alert('PDF 저장 실패: ' + e.message); }
   },
+  // 그림(PNG/JPG)으로 저장: 인쇄와 똑같은 PDF를 만든 뒤 쪽마다 그림으로 바꿈 (pdf.js)
+  async loadPdfJs() {
+    if (window.pdfjsLib) return window.pdfjsLib;
+    await new Promise((res, rej) => { const sc = h('script', { src: 'lib/pdf.min.js' }); sc.onload = res; sc.onerror = () => rej(new Error('pdf.js를 불러오지 못했습니다.')); document.head.append(sc); });
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';
+    return window.pdfjsLib;
+  },
+  parsePages(spec, max) {
+    const out = new Set();
+    for (const part of String(spec || '').split(/[,\s]+/).filter(Boolean)) {
+      const m = /^(\d+)(?:\s*[-~]\s*(\d+))?$/.exec(part);
+      if (!m) continue;
+      let a = +m[1], b = m[2] ? +m[2] : a;
+      if (a > b) [a, b] = [b, a];
+      for (let i = Math.max(1, a); i <= Math.min(max, b); i++) out.add(i);
+    }
+    return [...out].sort((x, y) => x - y);
+  },
+  async exportImage() {
+    const total = this.pageCount();
+    const v = await Dialog.form('그림으로 저장', [
+      { name: 'fmt', label: '파일 형식', type: 'select', value: 'png', options: [['png', 'PNG (선명함)'], ['jpg', 'JPG (파일 작음)']] },
+      { name: 'dpi', label: '해상도', type: 'select', value: '150', options: [['96', '96 dpi (화면용)'], ['150', '150 dpi (보통)'], ['200', '200 dpi'], ['300', '300 dpi (인쇄용)']] },
+      { name: 'range', label: '쪽 범위', type: 'select', value: total > 1 ? 'all' : 'all', options: [['all', `모든 쪽 (${total}쪽)`], ['cur', `현재 쪽 (${this.currentPage()}쪽)`], ['pick', '쪽 지정']] },
+      { name: 'pages', label: '쪽 지정', placeholder: '예: 1-3, 5' },
+    ], { note: '여러 쪽이면 "파일이름-1.png", "파일이름-2.png"처럼 쪽마다 따로 저장합니다.' });
+    if (!v) return;
+    const ext = v.fmt === 'jpg' ? 'jpg' : 'png';
+    const base0 = this.baseName(this.fileName) || `${T('문서')}${this.untitled}`;
+    const p = await window.native.saveDialog(ext, base0 + '.' + ext);
+    if (!p) return;
+    await this.exportImageTo(p, v);
+  },
+  async exportImageTo(p, v) {
+    const ext = v.fmt === 'jpg' ? 'jpg' : 'png';
+    try {
+      status('그림으로 바꾸는 중…');
+      const pdfBytes = await this.renderPDF();
+      const lib = await this.loadPdfJs();
+      const doc = await lib.getDocument({ data: new Uint8Array(pdfBytes), isEvalSupported: false }).promise;
+      const n = doc.numPages;
+      let pages = v.range === 'cur' ? [Math.min(n, this.currentPage())] : v.range === 'pick' ? this.parsePages(v.pages, n) : Array.from({ length: n }, (_, i) => i + 1);
+      if (!pages.length) { Dialog.alert('저장할 쪽이 없습니다. 쪽 번호를 확인하세요.'); return; }
+      const scale = (+v.dpi || 150) / 72;
+      const stem = p.replace(/\.(png|jpe?g)$/i, '');
+      const w = String(n).length;
+      const saved = [];
+      for (const no of pages) {
+        const pg = await doc.getPage(no);
+        const vp = pg.getViewport({ scale });
+        const cv = document.createElement('canvas');
+        cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
+        const ctx = cv.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+        await pg.render({ canvasContext: ctx, viewport: vp }).promise;
+        const blob = await new Promise((res) => cv.toBlob(res, ext === 'jpg' ? 'image/jpeg' : 'image/png', 0.92));
+        const out = pages.length === 1 ? `${stem}.${ext}` : `${stem}-${String(no).padStart(w, '0')}.${ext}`;
+        await window.native.writeFile(out, new Uint8Array(await blob.arrayBuffer()));
+        saved.push(out);
+      }
+      doc.destroy();
+      toast(pages.length === 1 ? '그림으로 저장했습니다.' : `${pages.length}쪽을 그림으로 저장했습니다.`);
+      status(`저장했습니다: ${saved.length === 1 ? saved[0] : saved[0] + ' 외 ' + (saved.length - 1) + '개'}`);
+    } catch (e) { console.error(e); Dialog.alert('그림으로 저장하지 못했습니다: ' + e.message); }
+  },
   async print() {
     this.prepareForOutput();
-    this.applyPrintStyle();
-    await window.native.print();
+    await this.atPrintZoom(() => window.native.print());
   },
   async requestClose() {
     if (!(await Tabs.confirmAll())) return;
@@ -420,9 +494,53 @@ const App = {
     status(`기본 글꼴을 ${this.defaultFont} ${this.defaultSize}pt로 정했습니다.`);
     this.updateToolbar && this.updateToolbar();
   },
+  // 한 줄(tr) 안에서 쪽 경계에 걸친 문단부터 다음 쪽으로 넘기는 규칙을 만듦. 셀마다 걸친 문단 앞에 빈 자리를 넣음.
+  // 나눌 수 있는 곳이 없으면(모든 셀의 첫 문단부터 걸침) null
+  splitInRow(tr, rTop, B, next, rowSel, print) {
+    const z = this.zoom || 1;
+    const cells = Array.from(tr.cells);
+    const saved = cells.map((c) => c.style.verticalAlign);
+    cells.forEach((c) => { c.style.verticalAlign = 'top'; });
+    try {
+      const trR = tr.getBoundingClientRect();
+      const rH = trR.height / z;
+      const rules = [`${rowSel} > :is(td,th){vertical-align:top !important}`];
+      let need = rH, useful = false;
+      cells.forEach((td, ci) => {
+        const tdR = td.getBoundingClientRect();
+        const tdTop = rTop + (tdR.top - trR.top) / z;
+        const kids = Array.from(td.children).filter((el) => { const cs = getComputedStyle(el); return cs.display !== 'none' && cs.position !== 'absolute' && cs.float === 'none'; });
+        if (!kids.length) return;
+        let gi = 0;
+        for (let n = 0; n < kids.length; n++) {
+          const el = kids[n];
+          const r = el.getBoundingClientRect();
+          const t = tdTop + (r.top - tdR.top) / z, bt = tdTop + (r.bottom - tdR.top) / z;
+          if (bt > B + 0.5) {
+            if (n > 0) useful = true;
+            gi = Math.max(0, next - t);
+            const mt = parseFloat(getComputedStyle(el).marginTop) || 0;
+            rules.push(print ? `${rowSel} > :nth-child(${ci + 1}) > :nth-child(${Array.from(td.children).indexOf(el) + 1}){break-before:page}` : `${rowSel} > :nth-child(${ci + 1}) > :nth-child(${Array.from(td.children).indexOf(el) + 1}){margin-top:${(mt + gi).toFixed(1)}px !important}`);
+            break;
+          }
+        }
+        const last = kids[kids.length - 1].getBoundingClientRect();
+        const padB = (parseFloat(getComputedStyle(td).paddingBottom) || 0) + (parseFloat(getComputedStyle(td).borderBottomWidth) || 0);
+        need = Math.max(need, tdTop - rTop + (last.bottom - tdR.top) / z + padB + gi);
+      });
+      // 앞 쪽에 실제로 남는 글이 있는 셀이 하나도 없으면 줄째 넘김
+      const partial = rules.length > 1;
+      if (!useful || !partial) return null;
+      if (!print) rules.push(`${rowSel}{height:${need.toFixed(1)}px !important}`);
+      return { rules, add: need - rH };
+    } finally {
+      cells.forEach((c, i) => { c.style.verticalAlign = saved[i]; });
+    }
+  },
   layout() {
     this.applyBaseFont();
     Ratio.render();
+    Justify.render();
     Img.syncFigs();
     Table.fitCellLines();
     Table.layoutBgAll();
@@ -448,12 +566,18 @@ const App = {
       const mt = parseFloat(cs.marginTop) || 0, mb = parseFloat(cs.marginBottom) || 0;
       return { top: b.offsetTop - mt, h: b.offsetHeight + mt + mb, mt, out: cs.position === 'absolute' || cs.float !== 'none' };
     });
+    const TOL = Math.min(14, CH * 0.015);
+    // 꼬리말이 없으면 한글은 표의 마지막 줄이 꼬리말 자리까지 내려가도 그 쪽에 둠
+    const TOLT = this.docSettings && this.docSettings.footer ? TOL : Math.max(TOL, U.mm2px(p.footer || 0));
+    this.printTol = TOLT;
+    this.blockPage = new WeakMap();
+    this.rowSplit = new WeakMap();
+    // 쪽 나눔 계산: 화면(쪽 사이 틈 포함 pitch)과 인쇄(쪽마다 본문 높이 + 넘침 허용 TOLT, 틈 없음) 두 번 계산
+    const paginate = (pitch, print) => {
     let shift = 0, lastBottom = 0;
     const rules = [];
     const splits = [];
     let prevTbl = null;
-    this.blockPage = new WeakMap();
-    this.rowSplit = new WeakMap();
     kids.forEach((b, i) => {
       const e = m[i];
       if (e.out) return;
@@ -468,28 +592,72 @@ const App = {
         let gap = 0;
         if (top > pk * pitch + 1 && (top >= cEnd - 0.5 || (top + r0.offsetTop + r0.offsetHeight > cEnd + 0.5 && r0.offsetHeight <= CH))) gap = (pk + 1) * pitch - top;
         // 한글: 같은 문단에 붙은 앞 표가 여러 쪽에 걸쳐 있으면 이 표는 다음 쪽에서 시작
-        if (!gap && b.dataset.samepara && prevTbl && prevTbl.el === b.previousElementSibling && prevTbl.end > prevTbl.start && top > pk * pitch + 1) gap = (pk + 1) * pitch - top;
+        let pv = b.previousElementSibling;
+        while (pv && pv.tagName === 'P' && !pv.textContent.replace(/\u200b/g, '').trim()) pv = pv.previousElementSibling; // 첫 표 아래 빈 문단은 건너뜀
+        if (!gap && b.dataset.samepara && prevTbl && prevTbl.el === pv && prevTbl.end > prevTbl.start && top > pk * pitch + 1) gap = (pk + 1) * pitch - top;
         // 다음 쪽으로 넘어간 표는 한글처럼 본문 맨 위에 붙임 (문단 기준 세로 띄움은 원래 쪽에서만 의미가 있음)
         const drop = gap > 0 ? Math.min(+b.dataset.vshift || 0, e.mt) : 0;
         const mt = e.mt - drop;
-        if (gap > 0) rules.push(`${sel}{margin-top:${(mt + gap).toFixed(1)}px !important}`);
+        if (gap > 0) rules.push(print ? `${sel}{break-before:page;margin-top:${mt.toFixed(1)}px !important}` : `${sel}{margin-top:${(mt + gap).toFixed(1)}px !important}`);
         let extra = 0;
-        rows.forEach((tr, j) => {
-          if (!j) return;
-          const rTop = top + mt + gap + tr.offsetTop + extra;
-          const rH = tr.offsetHeight;
+        // 줄 경계마다 합친 셀(세로)이 걸쳐 있는지: 한글은 합친 셀을 가르지 않는 경계에서 먼저 나눔
+        const crossed = new Array(rows.length + 1).fill(false);
+        // inner[q]: 경계 q를 가로지르는 합친 셀 중 가장 늦게 시작하는 셀의 시작 줄 (가장 안쪽 묶음)
+        const inner = new Array(rows.length + 1).fill(-1);
+        try { for (const c of Table.grid(b).cells) for (let q = c.r + 1; q < c.r + c.rs; q++) { crossed[q] = true; inner[q] = Math.max(inner[q], c.r); } } catch { /* 무시 */ }
+        const rowTop = (q) => top + mt + gap + rows[q].offsetTop + extra;
+        for (let j = 1; j < rows.length; j++) {
+          let tr = rows[j];
+          let rTop = rowTop(j);
+          let rH = tr.offsetHeight;
           const k = Math.floor(rTop / pitch + 1e-6);
-          if (rTop + rH > k * pitch + CH + 0.5 && rH <= CH && rTop > k * pitch + 1) {
+          const pbT = b.dataset.pb === 'TABLE';
+          // 글꼴 차이로 한글보다 몇 픽셀 커지는 일이 흔해서, 조금 넘치는 정도(쪽 높이의 1.5%, 최대 14px)는 그 쪽에 둠
+          if (!(rTop + rH > k * pitch + CH + TOLT)) continue;
+          let to = -1;
+          // 합친 셀이 걸쳐 있으면 그 묶음이 시작하는 줄까지 거슬러 올라가 거기서 나눔 (같은 쪽 안에서만)
+          if (crossed[j]) {
+            // 표 첫 쪽에서는 제목 줄(맨 위 묶음)만 홀로 남기지 않음
+            let headEnd = 1;
+            while (headEnd < rows.length && crossed[headEnd]) headEnd++;
+            const firstPage = k === Math.floor((top + mt + gap) / pitch + 1e-6);
+            const ok = (q) => q >= 1 && q < j && rowTop(q) > k * pitch + 1 && !(firstPage && q <= headEnd);
+            // 1) 바깥 묶음 전체가 한 쪽에 들어가면 그 묶음 시작에서 나눔 (한글: '나눔' 표도 이렇게 함)
+            let q = j;
+            while (q > 1 && crossed[q]) q--;
+            let e2 = j;
+            while (e2 + 1 < rows.length && crossed[e2 + 1]) e2++;
+            const groupH = rows[e2].offsetTop + rows[e2].offsetHeight - rows[q].offsetTop;
+            if (!crossed[q] && groupH <= CH && ok(q)) to = q;
+            // 2) 아니면 가장 안쪽 합친 셀이 시작하는 줄에서 나눔 (그 셀을 다음 쪽 맨 위부터 시작)
+            else if (ok(inner[j])) to = inner[j];
+          }
+          // 표 속성 '나눔'(pageBreak=TABLE): 한 쪽보다 긴 줄은 줄 안의 글도 쪽 경계에서 잘라 다음 쪽으로 이어 씀
+          if (to < 0 && pbT && rH > CH + TOLT && rTop < k * pitch + CH - 4) {
+            const res = this.splitInRow(tr, rTop, k * pitch + CH, (k + 1) * pitch, `${sel} > tbody > tr:nth-child(${j + 1})`, print);
+            if (res) {
+              rules.push(...res.rules);
+              splits.push({ tbl: b, y: k * pitch + CH, k, to: (k + 1) * pitch, mid: true });
+              if (!print) this.rowSplit.set(tr, res.add);
+              extra += res.add;
+              continue;
+            }
+          }
+          if (to > 0) { j = to; tr = rows[to]; rTop = rowTop(to); rH = tr.offsetHeight; }
+          if (rH <= CH && rTop > k * pitch + 1) {
             const g = (k + 1) * pitch - rTop;
-            rules.push(`${sel} > tbody > tr:nth-child(${j + 1}) > :is(td,th)::before{content:"";display:block;height:${g.toFixed(1)}px}`);
-            rules.push(`${sel} > tbody > tr:nth-child(${j + 1}){height:${(rH + g).toFixed(1)}px !important}`);
+            if (print) rules.push(`${sel} > tbody > tr:nth-child(${j + 1}){break-before:page}`);
+            else {
+              rules.push(`${sel} > tbody > tr:nth-child(${j + 1}) > :is(td,th)::before{content:"";display:block;height:${g.toFixed(1)}px}`);
+              rules.push(`${sel} > tbody > tr:nth-child(${j + 1}){height:${(rH + g).toFixed(1)}px !important}`);
+            }
             const bw = Math.max(1, ...Array.from(tr.cells).map((c) => parseFloat(getComputedStyle(c).borderTopWidth) || 0));
             splits.push({ tbl: b, y: rTop + bw / 2 + 2, k, to: (k + 1) * pitch });
-            this.rowSplit.set(tr, g);
+            if (!print) this.rowSplit.set(tr, g);
             extra += g;
           }
-        });
-        this.blockPage.set(b, Math.floor((top + gap) / pitch + 1e-6));
+        }
+        if (!print) this.blockPage.set(b, Math.floor((top + gap) / pitch + 1e-6));
         prevTbl = { el: b, start: Math.floor((top + gap) / pitch + 1e-6), end: Math.floor((top + gap + e.h - drop + extra - 1) / pitch + 1e-6) };
         shift += gap + extra - drop;
         lastBottom = Math.max(lastBottom, top + gap + e.h - drop + extra);
@@ -499,7 +667,8 @@ const App = {
         // 쪽 맨 위에 있는 쪽 나누기는 빈 쪽을 만들지 않음
         const atStart = top > 0 && top - pk * pitch < 2;
         const hgt = atStart ? 0 : Math.max(0, (pk + 1) * pitch - top);
-        b.style.height = hgt + 'px';
+        if (!print) b.style.height = hgt + 'px';
+        else if (atStart) rules.push(`#editor > :nth-child(${i + 1}){break-after:auto !important}`);
         shift += hgt;
         lastBottom = Math.max(lastBottom, top + hgt);
         return;
@@ -509,16 +678,33 @@ const App = {
         if (top >= cEnd - 0.5) gap = (pk + 1) * pitch - top; // 쪽 여백에서 시작하면 다음 쪽으로
         else if (top + e.h > cEnd + 0.5 && e.h <= CH) gap = (pk + 1) * pitch - top; // 쪽 끝에 걸치면 통째로 다음 쪽으로
       }
-      this.blockPage.set(b, Math.floor((top + gap) / pitch + 1e-6));
+      if (!print) this.blockPage.set(b, Math.floor((top + gap) / pitch + 1e-6));
       if (gap > 0) {
         const sel = `#editor > :nth-child(${i + 1})`;
-        if (/^(P|H[1-6])$/.test(b.tagName)) rules.push(`${sel}::before{content:"";display:block;height:${gap.toFixed(1)}px}`);
+        if (print) rules.push(`${sel}{break-before:page}`);
+        else if (/^(P|H[1-6])$/.test(b.tagName)) rules.push(`${sel}::before{content:"";display:block;height:${gap.toFixed(1)}px}`);
         else rules.push(`${sel}{margin-top:${(e.mt + gap).toFixed(1)}px !important}`);
         shift += gap;
       }
       lastBottom = Math.max(lastBottom, top + gap + e.h);
     });
-    gapCss.textContent = rules.length ? `@media screen{${rules.join('')}}` : '';
+    return { rules, splits, lastBottom };
+    };
+    const scr = paginate(pitch, false);
+    const splits = scr.splits, lastBottom = scr.lastBottom;
+    const PP = CH + TOLT;
+    const prn = paged ? paginate(PP, true) : { rules: [], splits: [] };
+    gapCss.textContent = (scr.rules.length ? `@media screen{${scr.rules.join('')}}` : '') + (prn.rules.length ? `@media print{${prn.rules.join('')}}` : '');
+    // 인쇄용 가림: 나뉜 표의 빈 부분(쪽 아래)을 가리고 다음 쪽 첫 줄 위에 선을 그음
+    let pcover = $('#print-cover');
+    if (!pcover) { pcover = h('div', { id: 'print-cover', 'aria-hidden': 'true' }); page.append(pcover); }
+    pcover.innerHTML = '';
+    for (const sp of prn.splits) {
+      if (!sp.mid) continue; // 줄째 넘김은 인쇄에서 쪽 나눔(break-before)으로 처리되어 가릴 것이 없음
+      const L = sp.tbl.offsetLeft - 2 + 'px', W = sp.tbl.offsetWidth + 4 + 'px';
+      pcover.append(h('div', { class: 'pg-split', style: { top: sp.y + 'px', height: Math.max(0, sp.to - sp.y - 0.5) + 'px', left: L, width: W, borderTop: '1px solid #000', borderBottom: '0' } }));
+      pcover.append(h('div', { class: 'pg-split', style: { top: sp.to + 'px', height: '1px', left: L, width: W, borderBottom: '0', background: '#000' } }));
+    }
     // 표가 나뉜 자리: 쪽 아래 여백·쪽 사이·다음 쪽 위 여백에 걸친 표 부분을 가려서 나뉜 곳이 보이게
     let cover = $('#page-cover');
     if (!cover) { cover = h('div', { id: 'page-cover', class: 'no-print', 'aria-hidden': 'true' }); page.append(cover); }
@@ -528,7 +714,7 @@ const App = {
       const y1 = padTop + sp.y, y2 = padTop + sp.to;
       const a1 = sp.k * pitch + paperH - y1, a2 = a1 + this.PAGE_GAP;
       cover.append(h('div', { class: 'pg-split', style: {
-        top: y1 + 'px', height: Math.max(0, y2 - y1) + 'px', left: padL + sp.tbl.offsetLeft - 2 + 'px', width: sp.tbl.offsetWidth + 4 + 'px',
+        top: y1 + 'px', height: Math.max(0, y2 - y1) + 'px', left: padL + sp.tbl.offsetLeft - 2 + 'px', width: sp.tbl.offsetWidth + 4 + 'px', ...(sp.mid ? { borderTop: '1px solid #000' } : {}),
         background: `linear-gradient(to bottom, #fff 0 ${a1}px, var(--workspace) ${a1}px ${a2}px, #fff ${a2}px)`,
       } }));
     }
@@ -656,7 +842,7 @@ const App = {
   },
   saveUiPref: debounce(function () {
     const cl = document.body.classList;
-    App.saveSettings({ noGuides: cl.contains('no-guides'), showMarks: cl.contains('show-marks'), showParaMarks: cl.contains('show-paramarks'), noHRuler: cl.contains('no-hruler'), noVRuler: cl.contains('no-vruler'), zoom: App.zoom });
+    App.saveSettings({ noGuides: cl.contains('no-guides'), showMarks: cl.contains('show-marks'), showParaMarks: cl.contains('show-paramarks'), noHRuler: cl.contains('no-hruler'), noVRuler: cl.contains('no-vruler'), noToolbar: cl.contains('no-toolbar'), zoom: App.zoom });
   }, 500),
   settings: {},
   // 설정 파일은 다른 창과 함께 쓰므로 읽어서 합친 뒤 저장
@@ -690,7 +876,8 @@ const App = {
         const font = bx.style || 'font:9pt "함초롬바탕","HCR Batang","바탕",serif;';
         const al = pos.split('-')[1];
         const pad = Math.max(0, room - 6);
-        let css = `content:${content};${font}text-align:${al};vertical-align:${top ? 'bottom' : 'top'};`;
+        // 인쇄 쪽 오른쪽 여백을 0으로 두므로(표가 오른쪽 여백까지 나가도 잘리지 않게), 머리말 칸은 오른쪽 여백만큼 안쪽으로
+        let css = `content:${content};${font}text-align:${al};vertical-align:${top ? 'bottom' : 'top'};${al !== 'left' ? `padding-right:${p.right}mm;` : ''}`;
         if (bx.line) {
           const col = (HF.get(top ? 'header' : 'footer') || {}).color || '#000';
           css += `width:${((p.width - p.left - p.right) / 3).toFixed(2)}mm;border-${top ? 'bottom' : 'top'}:0.4pt solid ${col};padding-${top ? 'bottom' : 'top'}:1mm;margin-${top ? 'bottom' : 'top'}:${Math.max(0, pad - 1)}mm;`;
@@ -700,8 +887,11 @@ const App = {
       return margin;
     };
     const pn = PageNum.printCss(boxesFor);
+    // 인쇄 쪽 본문 = 화면 본문 + 넘침 허용(printTol): 화면에서 꼬리말 자리까지 내려간 표 줄이 인쇄에서도 같은 쪽에 남게
+    const tolMm = Math.min(p.bottom + p.footer - 1, ((this.printTol || 0) + 3) * 25.4 / 96); // +3px: 반올림 여유
     $('#page-style').textContent =
-      `@page{background:#fff;size:${p.width}mm ${p.height}mm;margin:${p.top + p.header}mm ${p.right}mm ${p.bottom + p.footer}mm ${p.left}mm;${pn.page}}${pn.extra}`;
+      `@page{background:#fff;size:${p.width}mm ${p.height}mm;margin:${p.top + p.header}mm 0 ${(p.bottom + p.footer - Math.max(0, tolMm)).toFixed(3)}mm ${p.left}mm;${pn.page}}${pn.extra}`
+      + `@media print{#editor{width:${this.contentWidth()}px !important}}`;
   },
 
   // ================= 상태 표시 =================
@@ -1225,13 +1415,13 @@ App.updateToolbar = function () {
 
 // ================= 메뉴 =================
 const MENUS = [
-  { name: '파일', key: 'F', items: ['file-new', 'file-new-window', 'file-open', '-', 'file-save', 'file-saveas', 'file-docx', 'file-pdf', '-', 'page-setup', 'file-print', '-', 'file-close', 'app-quit'] },
+  { name: '파일', key: 'F', items: ['file-new', 'file-new-window', 'file-open', '-', 'file-save', 'file-saveas', 'file-docx', 'file-pdf', 'file-image', '-', 'page-setup', 'file-print', '-', 'file-close', 'app-quit'] },
   { name: '편집', key: 'E', items: ['undo', 'redo', '-', 'cut', 'copy', 'paste', 'paste-text', '-', 'select-all', 'block', 'col-block', 'caret-add-up', 'caret-add-down', '-', 'delete-line', 'delete-eol', 'delete-word', '-', 'find', 'replace', 'find-next', 'goto', '-', 'shape-copy'] },
-  { name: '보기', key: 'U', items: ['toggle-guides', 'toggle-paramarks', 'toggle-marks', 'toggle-hruler', 'toggle-vruler', '-', 'split-v', 'split-h', 'split-off', '-', 'lang-ko', 'lang-en', '-', 'zoom-in', 'zoom-out', 'zoom-100', 'zoom-width'] },
+  { name: '보기', key: 'U', items: ['fullscreen', 'toggle-toolbar', '-', 'toggle-guides', 'toggle-paramarks', 'toggle-marks', 'toggle-hruler', 'toggle-vruler', '-', 'split-v', 'split-h', 'split-off', '-', 'lang-ko', 'lang-en', '-', 'zoom-in', 'zoom-out', 'zoom-100', 'zoom-width'] },
   { name: '입력', key: 'D', items: ['table-create', 'image-insert', 'textbox', '-', 'shape-line', 'shape-arrow', 'shape-darrow', 'shape-rect', 'shape-roundrect', 'shape-ellipse', 'shape-triangle', '-', 'wrap-inline', 'wrap-left', 'wrap-right', 'wrap-front', 'wrap-behind', 'object-props', 'image-caption', 'shape-text', 'obj-group', 'obj-ungroup', '-', 'page-break', 'symbols', 'date-insert', 'link', '-', 'mm-mark'] },
   { name: '서식', key: 'J', items: ['char-shape', 'para-shape', 'tab-dialog', 'style-dlg', '-', 'bold', 'italic', 'underline', 'strike', 'sup', 'sub', 'normal-char', '-', 'size-up', 'size-down', 'spacing-wide', 'spacing-narrow', 'ratio-wide', 'ratio-narrow', 'lh-up', 'lh-down', '-', 'align-justify', 'align-left', 'align-center', 'align-right', 'align-distribute', '-', 'indent-first', 'outdent-first', 'margin-inc', 'margin-dec', '-', 'numbering', 'numbering-shape', 'num-restart', 'bullets', 'bullet-shape', 'list-deeper', 'list-shallower'] },
   { name: '쪽', key: 'W', items: ['page-setup', 'page-break', '-', 'columns', 'col-break', '-', 'page-number', 'page-newnum', 'page-hide', 'header-footer'] },
-  { name: '표', key: 'B', items: ['table-create', '-', 'cell-block', 'row-col-insert', 'row-add', 'col-add', 'row-col-delete', '-', 'cell-merge', 'cell-split', 'cell-props', 'equal-width', 'equal-height', '-', 'table-props', 'wrap-inline', 'wrap-left', 'wrap-right', 'wrap-front', 'wrap-behind', '-', 'table-delete'] },
+  { name: '표', key: 'B', items: ['table-create', '-', 'cell-block', 'row-col-insert', 'row-add', 'col-add', 'row-col-delete', '-', 'cell-merge', 'cell-split', 'cell-props', 'equal-width', 'equal-height', '-', 'table-split', 'table-join', '-', 'table-props', 'wrap-inline', 'wrap-left', 'wrap-right', 'wrap-front', 'wrap-behind', '-', 'table-delete'] },
   { name: '도구', key: 'K', items: ['macro-record', 'macro-run', '-', 'mm-mark', 'mm-make', 'mm-datadoc', '-', 'default-font', 'shortcuts', 'about'] },
 ];
 
@@ -1246,6 +1436,15 @@ App.buildMenubar = function () {
     it.addEventListener('mouseenter', () => { if (App.openMenuIdx != null && App.openMenuIdx !== i) App.openMenu(i); });
     bar.append(it);
   });
+  // 오른쪽 끝: 도구 상자 접기/펴기, 전체 화면
+  const tb = h('button', { class: 'mb-btn', id: 'mb-fold', title: '도구 상자 접기/펴기 (Ctrl+F1)' });
+  const fs = h('button', { class: 'mb-btn', title: '전체 화면 (F11)' }, '⛶');
+  const setFold = () => { tb.textContent = document.body.classList.contains('no-toolbar') ? '▾' : '▴'; };
+  tb.addEventListener('mousedown', (e) => { e.preventDefault(); Commands.run('toggle-toolbar'); setFold(); });
+  fs.addEventListener('mousedown', (e) => { e.preventDefault(); Commands.run('fullscreen'); });
+  new MutationObserver(setFold).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+  setFold();
+  bar.append(h('div', { style: { flex: '1' } }), tb, fs);
 };
 App.openMenuIdx = null;
 App.openMenu = function (i) {
@@ -1338,7 +1537,7 @@ App.showContextMenu = function (e) {
       const pos = document.caretRangeFromPoint(e.clientX, e.clientY);
       if (pos && !Sel.range()?.intersectsNode(pos.startContainer)) Sel.set(pos);
     }
-    items.push('-', 'cell-block', 'row-col-insert', 'row-col-delete', 'cell-merge', 'cell-split', 'cell-props', 'table-props', 'equal-width', 'equal-height', '-', ...wrapItems(Shapes.TABLE_WRAPS), '-', 'table-delete');
+    items.push('-', 'cell-block', 'row-col-insert', 'row-col-delete', 'cell-merge', 'cell-split', 'table-split', 'table-join', 'cell-props', 'table-props', 'equal-width', 'equal-height', '-', ...wrapItems(Shapes.TABLE_WRAPS), '-', 'table-delete');
   }
   const pop = App.renderMenu(items.map((x) => (typeof x === 'string' ? (x === '-' ? '-' : { cmd: x }) : x)));
   const cm = $('#ctxmenu');

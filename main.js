@@ -77,6 +77,8 @@ const FILTERS_FN = () => ({
   hwpx: [{ name: L('한글 문서 (HWPX)', 'Hangul document (HWPX)'), extensions: ['hwpx'] }],
   docx: [{ name: L('Word 문서', 'Word document'), extensions: ['docx'] }],
   pdf: [{ name: L('PDF 문서', 'PDF document'), extensions: ['pdf'] }],
+  png: [{ name: L('PNG 그림', 'PNG image'), extensions: ['png'] }],
+  jpg: [{ name: L('JPG 그림', 'JPEG image'), extensions: ['jpg', 'jpeg'] }],
   image: [{ name: L('그림 파일', 'Pictures'), extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg'] }],
   mergeData: [
     { name: L('메일머지 자료 (HWPX, CSV, TXT)', 'Mail merge data (HWPX, CSV, TXT)'), extensions: ['hwpx', 'csv', 'txt'] },
@@ -121,7 +123,7 @@ ipcMain.handle('dlg:open', async (e, kind = 'open', multi = false) => {
 ipcMain.handle('dlg:save', async (e, kind = 'hwpx', defaultName = '문서') => {
   const win = fromEvent(e);
   const r = await dialog.showSaveDialog(win, {
-    title: kind === 'pdf' ? L('PDF로 저장', 'Save as PDF') : kind === 'docx' ? L('DOCX로 내보내기', 'Export to DOCX') : L('다른 이름으로 저장', 'Save As'),
+    title: kind === 'pdf' ? L('PDF로 저장', 'Save as PDF') : (kind === 'png' || kind === 'jpg') ? L('그림으로 저장', 'Save as Image') : kind === 'docx' ? L('DOCX로 내보내기', 'Export to DOCX') : L('다른 이름으로 저장', 'Save As'),
     defaultPath: defaultName,
     filters: FILTERS_FN()[kind] || FILTERS_FN().hwpx,
   });
@@ -150,6 +152,7 @@ ipcMain.handle('msg:confirm', async (e, message, buttons, detail) => {
 
 ipcMain.handle('win:new', (e, opts) => { createWindow(opts || {}); return true; });
 ipcMain.handle('win:title', (e, title) => { const w = fromEvent(e); if (w) w.setTitle(title); });
+ipcMain.handle('win:fullscreen', (e) => { const w = fromEvent(e); if (!w) return false; w.setFullScreen(!w.isFullScreen()); return w.isFullScreen(); });
 ipcMain.handle('win:close', (e) => { const w = fromEvent(e); if (w) { w.__forceClose = true; w.close(); } });
 ipcMain.handle('app:quit', () => {
   for (const w of windows) w.webContents.send('app:close-request');

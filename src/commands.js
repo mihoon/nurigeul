@@ -31,6 +31,7 @@ const Commands = (() => {
   def('파일', 'file-saveas', '다른 이름으로 저장하기…', { keys: ['Alt+V'], noHistory: true, run: () => App.save(true) });
   def('파일', 'file-docx', 'DOCX(Word)로 내보내기…', { noHistory: true, icon: 'file-text', run: () => App.exportDocx() });
   def('파일', 'file-pdf', 'PDF로 저장하기…', { noHistory: true, icon: 'file-down', run: () => App.exportPdf() });
+  def('파일', 'file-image', '그림으로 저장하기…', { noHistory: true, icon: 'image', run: () => App.exportImage() });
   def('파일', 'page-setup', '편집 용지…', { keys: ['F7'], ask: () => Dialogs.pageSetup(), run: (a) => App.setPage(a) });
   def('파일', 'file-print', '인쇄…', { keys: ['Alt+P', 'Ctrl+P'], icon: 'printer', noHistory: true, run: () => App.print() });
   def('파일', 'file-close', '문서 닫기', { keys: ['Ctrl+F4'], noHistory: true, run: () => Tabs.closeCurrent() });
@@ -62,6 +63,12 @@ const Commands = (() => {
   def('보기', 'toggle-guides', '쪽 윤곽 (쪽 경계 표시)', { keys: ['Ctrl+G,L'], noHistory: true, checked: () => !document.body.classList.contains('no-guides'), run: () => { document.body.classList.toggle('no-guides'); App.saveUiPref(); App.layout(); } });
   def('보기', 'toggle-paramarks', '문단 부호 (문단 끝 ↵)', { keys: ['Ctrl+G,T'], noHistory: true, icon: 'pilcrow', checked: () => document.body.classList.contains('show-paramarks'), run: () => { document.body.classList.toggle('show-paramarks'); Marks.update(); App.saveUiPref(); } });
   def('보기', 'toggle-marks', '조판 부호 (줄 나눔·탭·개체·쪽 설정 표시)', { keys: ['Ctrl+G,C'], noHistory: true, checked: () => document.body.classList.contains('show-marks'), run: () => { document.body.classList.toggle('show-marks'); Marks.update(); App.saveUiPref(); } });
+  def('보기', 'fullscreen', '전체 화면', { keys: ['F11'], noHistory: true, run: async () => {
+    if (window.native && window.native.toggleFullScreen) await window.native.toggleFullScreen();
+    else if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {});
+    setTimeout(() => App.layoutSoon(), 300);
+  } });
+  def('보기', 'toggle-toolbar', '도구 상자 접기/펴기', { keys: ['Ctrl+F1'], noHistory: true, checked: () => document.body.classList.contains('no-toolbar'), run: () => { document.body.classList.toggle('no-toolbar'); App.saveUiPref(); Ruler.drawSoon(); } });
   def('보기', 'toggle-hruler', '가로 눈금자', { noHistory: true, checked: () => !document.body.classList.contains('no-hruler'), run: () => { document.body.classList.toggle('no-hruler'); App.saveUiPref(); Ruler.drawSoon(); } });
   def('보기', 'toggle-vruler', '세로 눈금자', { noHistory: true, checked: () => !document.body.classList.contains('no-vruler'), run: () => { document.body.classList.toggle('no-vruler'); App.saveUiPref(); Ruler.drawSoon(); } });
   def('보기', 'lang-ko', '언어: 한국어', { noHistory: true, checked: () => I18N.lang === 'ko', run: () => I18N.setLang('ko') });
@@ -154,6 +161,8 @@ const Commands = (() => {
   def('표', 'cell-resize-keep', '셀 크기 조절 (표 크기 유지)', { hidden: true, run: (a) => Table.resizeKeep(a.dx || 0, a.dy || 0) });
   def('표', 'cell-resize-only', '선택한 셀만 크기 조절', { hidden: true, run: (a) => Table.resizeCellsOnly(a.dx || 0, a.dy || 0) });
   def('표', 'cell-clear', '셀 내용 지우기', { hidden: true, run: () => Table.block.clearContents() });
+  def('표', 'table-split', '표 나누기', { keys: ['Ctrl+N,A'], enabled: inTable, run: () => Table.splitTable() });
+  def('표', 'table-join', '표 붙이기', { keys: ['Ctrl+N,Z'], enabled: inTable, run: () => Table.joinTable() });
   def('표', 'table-props', '표 속성 (크기·여백·배치)…', { keys: ['Ctrl+N,K'], enabled: inTable, ask: () => Look.tableDialog(), run: (a) => Look.applyTable(a) });
   def('표', 'table-delete', '표 지우기', { enabled: inTable, run: () => Table.remove() });
   def('표', 'cell-next', '다음 셀', { hidden: true, noHistory: false, run: (a) => Table.moveCell(!a || a.forward !== false) });

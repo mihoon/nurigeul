@@ -481,6 +481,7 @@ function setStyles(el, obj) {
   }
 }
 function letterSpacingPct(el) {
+  while (el && el.classList && el.classList.contains('jl') && el.parentElement) el = el.parentElement; // 화면용 양쪽 정렬 벌림은 자간이 아님
   const cs = getComputedStyle(el);
   if (!cs.letterSpacing || cs.letterSpacing === 'normal') return 0;
   return Math.round(parseFloat(cs.letterSpacing) / parseFloat(cs.fontSize) * 100);

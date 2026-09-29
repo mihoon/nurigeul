@@ -60,6 +60,7 @@ const HWPX = (() => {
         a: alignMap[b.align] || 'JUSTIFY', l: left, r: Math.round((b.mr || 0) * 100), i: ind,
         lh: Math.round(b.lh || 160), pv: Math.round((b.before || 0) * 100), nx: Math.round((b.after || 0) * 100),
         tab: tabPrId(b.tabs),
+        ...(b.kw ? { kw: 1 } : {}),
         ...(b.pbd ? { bd: bfId({ borders: { [b.pbd.side]: { style: 'solid', width: 1, color: b.pbd.color } }, bg: null }) } : {}),
       };
       const key = JSON.stringify(k);
@@ -276,7 +277,7 @@ const HWPX = (() => {
       const tw = t.widths.reduce((a, b) => a + b, 0);
       const W = U.px2hwp(tw), H = U.px2hwp(t.heights.reduce((a, b) => a + b, 0));
       const floating = t.wrap === 'front' || t.wrap === 'behind';
-      let x = `<hp:tbl id="${nid()}" zOrder="${++zSeq}" numberingType="TABLE" textWrap="${wrapAttr(t)}" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="${floating ? 'NONE' : 'CELL'}" repeatHeader="0" rowCnt="${t.nr}" colCnt="${t.nc}" cellSpacing="0" borderFillIDRef="${bfId(null)}" noAdjust="0">`
+      let x = `<hp:tbl id="${nid()}" zOrder="${++zSeq}" numberingType="TABLE" textWrap="${wrapAttr(t)}" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="${floating ? 'NONE' : (t.pb || 'CELL')}" repeatHeader="0" rowCnt="${t.nr}" colCnt="${t.nc}" cellSpacing="0" borderFillIDRef="${bfId(null)}" noAdjust="0">`
         + `<hp:sz width="${W}" widthRelTo="ABSOLUTE" height="${H}" heightRelTo="ABSOLUTE" protect="0"/>`
         + posXmlOf(t, t.align)
         + outMarginOf(t) + bgMetaXml(t) + marginXml('inMargin', t.im, [141, 510, 141, 510]);
@@ -350,12 +351,22 @@ const HWPX = (() => {
     }
     const firstRun = `<hp:run charPrIDRef="0">${secPr}${ctrls}</hp:run>${pnRun}`;
     // 같은 문단에 붙어 있던 표는 앞 표의 문단 안에 이어 적음 (한글 쪽 배치 유지)
+    // (앞 표와 이 표 사이에 빈 문단만 있으면 그 빈 문단은 표 문단 뒤에 그대로 둠 — 한글에서 첫 표 아래 빈 줄로 보이는 모양)
     let body = '';
+    let anchorEnd = -1;
+    const emptyP = (b) => b.t === 'p' && !(b.runs && b.runs.length) && !b.pageBreakBefore && !b.colBreakBefore && !b.cols;
     model.blocks.forEach((b, i) => {
-      const prev = model.blocks[i - 1];
-      if (b.t === 'table' && b.samepara && prev && prev.t === 'table' && body.endsWith('<hp:t/></hp:run></hp:p>')) {
-        body = body.slice(0, -'</hp:p>'.length) + `<hp:run charPrIDRef="0">${tableXml(b)}<hp:t/></hp:run></hp:p>`;
-      } else body += paraXml(b, i === 0 ? firstRun : '');
+      if (b.tend && emptyP(b) && anchorEnd >= 0) return; // 표 문단의 끝 표시 = 표 문단 자체
+      if (b.t === 'table' && b.samepara && anchorEnd >= 0) {
+        const at = anchorEnd - '</hp:p>'.length;
+        const ins = `<hp:run charPrIDRef="0">${tableXml(b)}<hp:t/></hp:run>`;
+        body = body.slice(0, at) + ins + body.slice(at);
+        anchorEnd += ins.length;
+        return;
+      }
+      body += paraXml(b, i === 0 ? firstRun : '');
+      if (b.t === 'table' && body.endsWith('<hp:t/></hp:run></hp:p>')) anchorEnd = body.length;
+      else if (!emptyP(b)) anchorEnd = -1;
     });
     const section = xmlDecl + secRootOpen + body + '</hs:sec>';
 
@@ -394,7 +405,7 @@ const HWPX = (() => {
       const margin = (f) => `<hh:margin><hc:intent value="${k.i * f}" unit="HWPUNIT"/><hc:left value="${k.l * f}" unit="HWPUNIT"/><hc:right value="${k.r * f}" unit="HWPUNIT"/><hc:prev value="${k.pv * f}" unit="HWPUNIT"/><hc:next value="${k.nx * f}" unit="HWPUNIT"/></hh:margin><hh:lineSpacing type="PERCENT" value="${k.lh}" unit="HWPUNIT"/>`;
       return `<hh:paraPr id="${id}" tabPrIDRef="${k.tab || 0}" condense="0" fontLineHeight="0" snapToGrid="1" suppressLineNumbers="0" checked="0" textDir="LTR">`
         + `<hh:align horizontal="${k.a}" vertical="BASELINE"/><hh:heading type="NONE" idRef="0" level="0"/>`
-        + '<hh:breakSetting breakLatinWord="KEEP_WORD" breakNonLatinWord="BREAK_WORD" widowOrphan="0" keepWithNext="0" keepLines="0" pageBreakBefore="0" lineWrap="BREAK"/>'
+        + `<hh:breakSetting breakLatinWord="KEEP_WORD" breakNonLatinWord="${k.kw ? 'KEEP_WORD' : 'BREAK_WORD'}" widowOrphan="0" keepWithNext="0" keepLines="0" pageBreakBefore="0" lineWrap="BREAK"/>`
         + '<hh:autoSpacing eAsianEng="0" eAsianNum="0"/>'
         + `<hp:switch><hp:case hp:required-namespace="http://www.hancom.co.kr/hwpml/2016/HwpUnitChar">${margin(1)}</hp:case><hp:default>${margin(2)}</hp:default></hp:switch>`
         + `<hh:border borderFillIDRef="${k.bd || 2}" offsetLeft="0" offsetRight="0" offsetTop="${k.bd ? 100 : 0}" offsetBottom="${k.bd ? 100 : 0}" connect="0" ignoreMargin="0"/></hh:paraPr>`;
@@ -585,6 +596,7 @@ const HWPX = (() => {
         lsType: ls ? ls.getAttribute('type') : 'PERCENT', ls: ls ? num(ls.getAttribute('value'), 160) : 160,
         tabs: ctx.tabPr[p.getAttribute('tabPrIDRef')] || null,
         bf: (desc(p, 'border')[0] || { getAttribute: () => null }).getAttribute('borderFillIDRef'),
+        kw: (() => { const bs = kid(p, 'breakSetting'); return !!bs && bs.getAttribute('breakNonLatinWord') === 'KEEP_WORD'; })(),
         heading: (() => { const hd = kid(p, 'heading'); const t = hd && hd.getAttribute('type'); return t && t !== 'NONE' ? { type: t, id: hd.getAttribute('idRef'), level: num(hd.getAttribute('level'), 0) } : null; })(),
       };
     });
@@ -667,6 +679,7 @@ const HWPX = (() => {
     // 파일에서 온 스타일 이름은 이름만 기억 (누리글 스타일의 글자 크기·들여쓰기를 덧씌우지 않음)
     if (styleName && STYLES.includes(styleName) && styleName !== '바탕글') attr += ` data-style="${styleName}" data-sfile=""`;
     if (pp && pp.tabs && pp.tabs.length) attr += ` data-tabs="${TabStops.serialize(pp.tabs)}"`;
+    if (pp && pp.kw) attr += ' data-kw=""';
     return attr;
   }
 
@@ -686,7 +699,20 @@ const HWPX = (() => {
         }
         if (p.getAttribute('columnBreak') === '1') html += '<div class="colbreak" contenteditable="false"></div>';
       }
-      const attrs = paraAttrs(pp, styleName);
+      let attrs = paraAttrs(pp, styleName);
+      // 문단 글자 크기 = 그 문단에서 가장 큰 글자 (한글은 줄 높이를 실제 글자 크기로 계산.
+      // 기본 10pt 그대로 두면 8pt 글자만 있는 줄도 10pt 줄 높이가 되어 표·문서가 길어짐)
+      {
+        let mx = 0, last = 0;
+        for (const run of kids(p, 'run')) {
+          const cp = ctx.charPr[run.getAttribute('charPrIDRef')];
+          if (!cp || cp.sup || cp.sub) continue;
+          last = cp.size || 10;
+          if (Array.from(run.children).some((x) => (x.localName === 't' && textOf(x)) || x.localName === 'tab')) mx = Math.max(mx, last);
+        }
+        const sz = mx || last;
+        if (sz && Math.abs(sz - 10) > 0.05) attrs = attrs.includes(' style="') ? attrs.replace(' style="', ` style="font-size:${sz}pt;`) : ` style="font-size:${sz}pt"` + attrs;
+      }
       let cur = '';
       let hasContent = false;
       const out = [];
@@ -704,6 +730,23 @@ const HWPX = (() => {
         cur += (css0 ? `<span style="${css0}">` : '') + escHtml(head) + '&nbsp;' + (css0 ? '</span>' : '');
         hasContent = true;
       }
+      // 한글이 단어 가운데서 줄을 바꾼 자리(lineseg textpos)에 줄바꿈 가능 표시(ZWSP)를 넣어 같은 자리에서 줄이 바뀌게 함
+      // (글자만 있는 문단에서만 — 저장할 때 ZWSP는 지워짐)
+      let brk = null, off = 0;
+      {
+        const runs = kids(p, 'run');
+        const plainOnly = runs.every((r) => Array.from(r.children).every((c) => c.localName === 't' && !c.children.length));
+        const lsa = kids(p, 'linesegarray')[0];
+        if (plainOnly && lsa) {
+          const plain = runs.map((r) => Array.from(r.children).map((c) => c.textContent).join('')).join('');
+          const set = new Set();
+          for (const ls of kids(lsa, 'lineseg')) {
+            const q = +ls.getAttribute('textpos');
+            if (q > 0 && q < plain.length && /\S/.test(plain[q - 1]) && /\S/.test(plain[q])) set.add(q);
+          }
+          if (set.size) brk = set;
+        }
+      }
       for (const run of kids(p, 'run')) {
         const cp = ctx.charPr[run.getAttribute('charPrIDRef')];
         lastCp = cp;
@@ -713,7 +756,14 @@ const HWPX = (() => {
         for (const node of Array.from(run.children)) {
           const n = node.localName;
           if (n === 't') {
-            const inner = textOf(node);
+            let inner;
+            if (brk) {
+              const raw = node.textContent;
+              let t2 = '';
+              for (let q = 0; q < raw.length; q++) { if (brk.has(off + q)) t2 += '\u200b'; t2 += raw[q]; }
+              off += raw.length;
+              inner = escHtml(t2);
+            } else inner = textOf(node);
             if (inner) { cur += wrap(inner); hasContent = true; }
           } else if (n === 'tab') { cur += wrap('\t'); hasContent = true; }
           else if (n === 'lineBreak') { cur += '<br>'; hasContent = true; }
@@ -721,7 +771,12 @@ const HWPX = (() => {
             flushPara(false);
             // 한 문단에 붙은 두 번째 이후 표 (앞 표가 여러 쪽에 걸치면 한글은 다음 쪽에서 시작)
             let th = tableHtml(node, ctx, pp);
-            if (tblInPara++ && !cur) th = th.replace('<table', '<table data-samepara="1"');
+            if (tblInPara++ && !cur) {
+              th = th.replace('<table', '<table data-samepara="1"');
+              // 한글: 같은 문단의 둘째 표는 다음 쪽으로 넘어가고, 문단 끝 표시는 첫 표 바로 아래에 보임
+              const ecss = charCss(lastCp);
+              out.push(`<p${attrs} data-tend="">${ecss ? `<span style="${ecss}"><br></span>` : '<br>'}</p>`);
+            }
             out.push(th);
           } else if (n === 'pic') {
             cur += picHtml(node, ctx);
@@ -1160,7 +1215,7 @@ const HWPX = (() => {
     let vshift = 0;
     if (!asChar && !tw2.wrap && pos && (pos.getAttribute('vertRelTo') || 'PARA') === 'PARA') vshift = Math.max(0, Math.round(U.hwp2px(sdim(pos.getAttribute('vertOffset')))));
     const cls = !tw2.wrap && hAlign === 'CENTER' ? ' class="tbl-center"' : !tw2.wrap && hAlign === 'RIGHT' ? ' class="tbl-right"' : '';
-    let html = `<table${cls}${tw2.wrap ? ` data-wrap="${tw2.wrap}"` : ''}${tw2.extra}${lookAttrs(tbl, tw2.wrap, null, true)} ${shift ? ` data-shift="${shift}"` : ''}${vshift ? ` data-vshift="${vshift}"` : ''} style="width:${Math.round(widths.reduce((a, b) => a + b, 0))}px${shift ? `;margin-left:${shift}px` : ''}"><colgroup>${widths.map((w) => `<col style="width:${Math.round(w * 10) / 10}px">`).join('')}</colgroup><tbody>`;
+    let html = `<table${cls}${tw2.wrap ? ` data-wrap="${tw2.wrap}"` : ''}${tw2.extra}${lookAttrs(tbl, tw2.wrap, null, true)} ${shift ? ` data-shift="${shift}"` : ''}${vshift ? ` data-vshift="${vshift}"` : ''}${/^(TABLE|NONE)$/.test(tbl.getAttribute('pageBreak') || '') ? ` data-pb="${tbl.getAttribute('pageBreak')}"` : ''} style="width:${Math.round(widths.reduce((a, b) => a + b, 0))}px${shift ? `;margin-left:${shift}px` : ''}"><colgroup>${widths.map((w) => `<col style="width:${Math.round(w * 10) / 10}px">`).join('')}</colgroup><tbody>`;
     for (let r = 0; r < nrows; r++) {
       html += `<tr${heights[r] ? ` style="height:${Math.round(heights[r])}px"` : ''}>`;
       for (const c of cells.filter((x) => x.r === r).sort((a, b) => a.c - b.c)) {
@@ -1234,7 +1289,21 @@ const HWPX = (() => {
     }
     tmp.querySelectorAll('div.cols').forEach((r) => { if (!r.firstElementChild) r.remove(); });
     // 다단 밖의 단 나누기는 의미 없음
-    tmp.querySelectorAll('.colbreak').forEach((c) => { if (!c.closest('div.cols')) c.remove(); });
+    // 한 단짜리 문서의 단 나누기는 한글에서 쪽 나누기처럼 동작
+    tmp.querySelectorAll('.colbreak').forEach((c) => {
+      if (c.closest('div.cols')) return;
+      if (c.parentElement === tmp && c.previousElementSibling) c.outerHTML = '<div class="pagebreak" contenteditable="false"></div>';
+      else c.remove();
+    });
+    // 같은 문단의 둘째 표 뒤에 이어지는 빈 문단은 한글에서 첫 표 아래(앞 쪽)에 보임
+    tmp.querySelectorAll(':scope > table[data-samepara]').forEach((t) => {
+      let n = t.nextElementSibling;
+      while (n && n.tagName === 'P' && !n.textContent.replace(/\u200b/g, '').trim() && !n.querySelector('img,.nobj,.pnnew,.pnhide')) {
+        const nx = n.nextElementSibling;
+        t.before(n);
+        n = nx;
+      }
+    });
     return tmp.innerHTML;
   }
 

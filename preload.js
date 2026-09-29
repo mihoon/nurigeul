@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('native', {
   confirm: (message, buttons, detail) => ipcRenderer.invoke('msg:confirm', message, buttons, detail),
   newWindow: (opts) => ipcRenderer.invoke('win:new', opts),
   setTitle: (t) => ipcRenderer.invoke('win:title', t),
+  toggleFullScreen: () => ipcRenderer.invoke('win:fullscreen'),
   closeWindow: () => ipcRenderer.invoke('win:close'),
   quit: () => ipcRenderer.invoke('app:quit'),
   print: () => ipcRenderer.invoke('print'),

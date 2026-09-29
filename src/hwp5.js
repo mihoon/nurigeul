@@ -72,6 +72,7 @@ const HWP5 = (() => {
       return `<hh:paraPr id="${i}" tabPrIDRef="${p.tabDefinitionId || 0}" condense="0" fontLineHeight="0" snapToGrid="1" suppressLineNumbers="0" checked="0">`
         + `<hh:align horizontal="${ALIGN[p.align] || 'JUSTIFY'}" vertical="BASELINE"/>`
         + `<hh:heading type="${['NONE', 'OUTLINE', 'NUMBER', 'BULLET'][p.headingKind || 0] || 'NONE'}" idRef="${p.numberingBulletId || 0}" level="${p.headingLevel || 0}"/>`
+        + `<hh:breakSetting breakLatinWord="KEEP_WORD" breakNonLatinWord="${p.breakNonLatinWord ? 'BREAK_WORD' : 'KEEP_WORD'}" widowOrphan="0" keepWithNext="0" keepLines="0" pageBreakBefore="0" lineWrap="BREAK"/>`
         + `<hh:margin><hc:intent value="${half(p.indent)}" unit="HWPUNIT"/><hc:left value="${half(p.paddingLeft)}" unit="HWPUNIT"/><hc:right value="${half(p.paddingRight)}" unit="HWPUNIT"/><hc:prev value="${half(p.marginTop)}" unit="HWPUNIT"/><hc:next value="${half(p.marginBottom)}" unit="HWPUNIT"/></hh:margin>`
         + `<hh:lineSpacing type="${lsKind}" value="${ls}" unit="HWPUNIT"/><hh:border borderFillIDRef="${p.borderFillId || 0}" offsetLeft="0" offsetRight="0" offsetTop="0" offsetBottom="0" connect="0" ignoreMargin="0"/></hh:paraPr>`;
     }).join('') + '</hh:paraProperties>';

@@ -19,6 +19,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 /* ---------- menu bar ---------- */
 #menubar { display: flex; gap: 2px; padding: 2px 6px; background: var(--chrome); border-bottom: 1px solid var(--line); user-select: none; }
+#menubar .mb-btn { border: 0; background: transparent; color: var(--muted, #666); font-size: 13px; width: 26px; border-radius: 4px; cursor: pointer; }
+#menubar .mb-btn:hover { background: rgba(0,0,0,.07); }
 #menubar .mb-item { padding: 4px 10px; border-radius: 4px; cursor: default; }
 #menubar .mb-item:hover, #menubar .mb-item.open { background: var(--accent-soft); }
 .menu-popup { position: fixed; z-index: 1000; min-width: 230px; background: #fff; border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.18); padding: 4px; user-select: none; }
@@ -91,7 +93,7 @@ body.show-marks #marks, body.show-paramarks #marks { display: block; }
 .page { position: relative; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.35); flex: none; }
 #editor { outline: none; min-height: 100%; position: relative; z-index: 1;
   font-family: var(--doc-font); font-size: 10pt; line-height: 1.6; text-align: justify; color: #000;
-  word-break: keep-all; overflow-wrap: anywhere; caret-color: #000; }
+  word-break: normal; overflow-wrap: break-word; caret-color: #000; }
 #editor p, #editor div.p { margin: 0; min-height: 1em; }
 #editor h1, #editor h2, #editor h3 { margin: 0; }
 #editor ul, #editor ol { margin: 0; padding-left: 2em; }
@@ -140,6 +142,10 @@ body.show-marks #marks, body.show-paramarks #marks { display: block; }
 #editor { counter-reset: fig; }
 /* 한글의 빈칸 폭: '글꼴에 어울리는 빈칸'을 쓰지 않으면 빈칸이 글자 크기의 절반 → 보통 글꼴의 빈칸(약 0.28em)보다 넓음 */
 #editor, #editor * { word-spacing: 0.22em; }
+/* 한글 '줄 나눔 기준': 한글은 글자 단위(기본)·어절 단위(keep-all), 영어는 단어 단위(긴 단어만 쪼갬) */
+#editor [data-kw] { word-break: keep-all; }
+/* 도구 상자 접기 (Ctrl+F1) */
+body.no-toolbar #toolbar, body.no-toolbar #formatbar { display: none; }
 #editor .figure { display: inline-flex; flex-direction: column; vertical-align: bottom; text-indent: 0; max-width: 100%; }
 #editor .figure[data-cap="top"] { flex-direction: column-reverse; }
 #editor .figure > img { margin: 0 !important; float: none !important; position: static !important; display: block; }
@@ -233,7 +239,7 @@ body:not(.no-guides) #editor div.cols { outline: 1px dotted #b9c3dd; outline-off
 
 /* tables */
 #editor table { border-collapse: collapse; table-layout: fixed; margin: 2px 0; }
-#editor td, #editor th { border: 1px solid #000; padding: 2px 7px; vertical-align: middle; min-width: 12px; height: 24px; word-break: break-all; font-weight: normal; }
+#editor td, #editor th { border: 1px solid #000; padding: 2px 7px; vertical-align: middle; min-width: 12px; height: 24px; font-weight: normal; }
 #editor td > p:only-child { min-height: 1.6em; }
 #editor td.cell-sel { background-image: linear-gradient(rgba(37, 99, 201, .28), rgba(37, 99, 201, .28)) !important; }
 #editor table.tbl-center { margin-left: auto; margin-right: auto; }
@@ -259,6 +265,8 @@ body.tbl-move #editor, body.tbl-move #editor * { cursor: move !important; }
 #page-guides .pg-corner { position: absolute; width: 14px; height: 14px; border: 0 solid #b3b9c3; }
 @media print { #page-guides .pg-corner { display: none; } }
 #page-cover .pg-split { position: absolute; border-bottom: 1px solid #000; }
+#print-cover { display: none; position: absolute; left: 0; top: 0; right: 0; pointer-events: none; z-index: 2; }
+#print-cover .pg-split { position: absolute; background: #fff; border-bottom: 1px solid #000; box-sizing: border-box; }
 #page-guides .pg-line { position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed #b3b9c3; }
 #page-guides .pg-lbl { position: absolute; right: 6px; transform: translateY(-50%); background: #fff; color: #98a2b3; font: 10px var(--ui-font); padding: 0 4px; }
 #page-guides .pg-hf { position: absolute; color: #9aa3b0; font: 9pt var(--doc-font); white-space: nowrap; overflow: hidden; }
@@ -394,11 +402,10 @@ kbd { font-family: Consolas, monospace; background: #eef1f6; border: 1px solid #
   .page { box-shadow: none !important; width: auto !important; padding: 0 !important; min-height: 0 !important; }
   #editor .pagebreak { height: 0 !important; margin: 0; break-after: page; }
   #editor { min-height: 0 !important; }
-  /* 화면처럼 쪽보다 짧은 문단·표는 쪽 사이에서 나뉘지 않게 */
-  #editor > p, #editor > h1, #editor > h2, #editor > h3, #editor > table, #editor > ul, #editor > ol { break-inside: avoid; }
+  /* 쪽 나눔은 화면과 같은 자리에서: 누리글이 계산한 빈 자리(@media print 규칙)로 넘김 — 브라우저가 따로 옮기지 않게 함 */
   #editor .pagebreak::after { display: none; }
   #editor .mm-field { background: none; border: 0; padding: 0; }
   #editor td.cell-sel { background-image: none !important; }
   #editor img.selected { outline: none; }
-  #editor tr { break-inside: avoid; }
+  #print-cover { display: block !important; }
 }

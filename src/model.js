@@ -8,7 +8,8 @@ const Model = {
       header: App.docSettings.header ? { ...App.docSettings.header } : null,
       footer: App.docSettings.footer ? { ...App.docSettings.footer } : null,
       pageNum: App.docSettings.pageNum ? { ...App.docSettings.pageNum } : null,
-      blocks: this.blocks(Sel.editor),
+      // 쪽 나눔 때문에 화면에만 넣은 빈 자리·정렬(#page-gaps)은 빼고 읽음
+      blocks: Table.natural(() => this.blocks(Sel.editor)),
     };
   },
 
@@ -92,7 +93,10 @@ const Model = {
       if (prev && prev.text != null && r.text != null && sameStyle(prev, r)) prev.text += r.text;
       else merged.push(r);
     }
-    return { t: 'p', runs: merged, ...this.paraProps(el) };
+    const out = { t: 'p', runs: merged, ...this.paraProps(el) };
+    // 표가 붙은 문단의 끝 표시(한글에서 첫 표 바로 아래에 보이는 문단 부호)
+    if (el.dataset && 'tend' in el.dataset) out.tend = true;
+    return out;
   },
 
   paraProps(el) {
@@ -121,6 +125,7 @@ const Model = {
       before: px2pt((parseFloat(cs.marginTop) || 0) + lsxT + (el === Sel.editor || el.tagName === 'TD' || el.tagName === 'TH' ? 0 : parseFloat(cs.paddingTop) || 0) + 'px'),
       after: px2pt((parseFloat(cs.marginBottom) || 0) + lsxB + (el === Sel.editor || el.tagName === 'TD' || el.tagName === 'TH' ? 0 : parseFloat(cs.paddingBottom) || 0) + 'px'),
       style: (el.dataset && el.dataset.style) || null,
+      kw: !!(el.dataset && 'kw' in el.dataset),
       tabs: el === Sel.editor ? [] : TabStops.parse(el),
       cs: el === Sel.editor ? null : this.charStyle(el.tagName === 'TD' || el.tagName === 'TH' ? el : (el.querySelector('span') && !el.textContent.trim() ? el.querySelector('span') : el)),
     };
@@ -218,7 +223,9 @@ const Model = {
     const g = Table.grid(table);
     const z = App.zoom || 1;
     const trs = rowsOf(table);
-    const heights = trs.map((tr) => Math.max(parseFloat(tr.style.height) || 0, tr.getBoundingClientRect().height / z - ((App.rowSplit && App.rowSplit.get(tr)) || 0)));
+    const gs = document.getElementById('page-gaps');
+    const gapsOn = !!(gs && !gs.disabled);
+    const heights = trs.map((tr) => Math.max(parseFloat(tr.style.height) || 0, tr.getBoundingClientRect().height / z - (gapsOn && App.rowSplit && App.rowSplit.get(tr) || 0)));
     let align = 'left';
     if (table.classList.contains('tbl-center')) align = 'center';
     else if (table.classList.contains('tbl-right')) align = 'right';
@@ -247,7 +254,7 @@ const Model = {
       };
     });
     const wrap = table.dataset.wrap || 'inline';
-    const out = { t: 'table', nr: g.nr, nc: g.nc, widths: g.widths, heights, align, cells, wrap, shift: align === 'left' ? +table.dataset.shift || 0 : 0, vshift: +table.dataset.vshift || 0, samepara: !!table.dataset.samepara, ...Look.model(table) };
+    const out = { t: 'table', nr: g.nr, nc: g.nc, widths: g.widths, heights, align, cells, wrap, shift: align === 'left' ? +table.dataset.shift || 0 : 0, vshift: +table.dataset.vshift || 0, samepara: !!table.dataset.samepara, pb: table.dataset.pb || '', ...Look.model(table) };
     if (wrap === 'front' || wrap === 'behind') { out.x = parseFloat(table.style.left) || 0; out.y = parseFloat(table.style.top) || 0; }
     return out;
   },
