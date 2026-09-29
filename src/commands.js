@@ -350,6 +350,24 @@ const Editing = {
     const pb = h('div', { class: 'pagebreak', contenteditable: 'false' });
     const block = blockOf(r.startContainer);
     if (!block || block === Sel.editor || block.tagName === 'TD') { Sel.editor.append(pb); Para.ensure(); return; }
+    const top0 = block.closest('li') ? block.closest('ul,ol') : block;
+    const txt = (rg) => rg.toString().replace(/\u200b/g, '');
+    const beforeR = document.createRange(); beforeR.setStartBefore(block.firstChild || block); beforeR.setEnd(r.startContainer, r.startOffset);
+    const afterR = document.createRange(); afterR.setStart(r.endContainer, r.endOffset); afterR.setEndAfter(block.lastChild || block);
+    const hasObj = (rg) => { const f = rg.cloneContents(); return !!f.querySelector && !!f.querySelector('img,.nobj,table'); };
+    // 문단 끝에서: 빈 문단을 만들지 않고 다음 문단을 다음 쪽으로 (한글처럼)
+    if (r.collapsed && !txt(afterR) && !hasObj(afterR) && top0.nextElementSibling && !top0.nextElementSibling.classList.contains('pagebreak')) {
+      const nx = top0.nextElementSibling;
+      top0.after(pb);
+      Sel.caretInto(nx.matches('ul,ol') ? (nx.querySelector('li') || nx) : nx);
+      return;
+    }
+    // 문단 맨 앞에서: 이 문단을 통째로 다음 쪽으로
+    if (r.collapsed && !txt(beforeR) && !hasObj(beforeR) && (txt(afterR) || hasObj(afterR)) && top0.previousElementSibling) {
+      top0.before(pb);
+      Sel.caretInto(block);
+      return;
+    }
     // 커서 위치에서 문단을 나누고 사이에 쪽 나누기
     const after = r.cloneRange();
     after.collapse(true);
