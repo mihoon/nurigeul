@@ -539,6 +539,15 @@ const App = {
       cells.forEach((c, i) => { c.style.verticalAlign = saved[i]; });
     }
   },
+  // 잠시 화면 위치를 고정 (그림 넣은 직후 다시 짜기·커서 복원 때문에 화면이 커서 쪽으로 튀지 않게)
+  keepScroll(top, ms = 1500) {
+    const ws = $('#workspace');
+    this._keepScroll = { top, until: Date.now() + ms };
+    const hold = () => { const k = this._keepScroll; if (k && Date.now() < k.until && Math.abs(ws.scrollTop - k.top) > 1) ws.scrollTop = k.top; };
+    const onUser = () => { this._keepScroll = null; ws.removeEventListener('wheel', onUser); ws.removeEventListener('mousedown', onUser); document.removeEventListener('keydown', onUser, true); };
+    ws.addEventListener('wheel', onUser, { passive: true }); ws.addEventListener('mousedown', onUser); document.addEventListener('keydown', onUser, true);
+    [0, 50, 150, 300, 600, 1000, ms].forEach((t) => setTimeout(hold, t));
+  },
   layout() {
     // 지난번 문단 쪽 나눔 빈 자리 지우기
     const oldPgs = Sel.editor.querySelectorAll('span.pgs, wbr.pgsw');
@@ -796,6 +805,7 @@ const App = {
       });
     }
     gapCss.textContent = (scr.rules.length ? `@media screen{${scr.rules.join('')}}` : '') + (prn.rules.length ? `@media print{${prn.rules.join('')}}` : '');
+    if (this._keepScroll && Date.now() < this._keepScroll.until) $('#workspace').scrollTop = this._keepScroll.top;
     // 인쇄용 가림: 나뉜 표의 빈 부분(쪽 아래)을 가리고 다음 쪽 첫 줄 위에 선을 그음
     let pcover = $('#print-cover');
     if (!pcover) { pcover = h('div', { id: 'print-cover', 'aria-hidden': 'true' }); page.append(pcover); }

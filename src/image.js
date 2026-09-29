@@ -20,6 +20,9 @@ const Img = {
     const img = h('img', { src: url, alt: opts.alt || '', style: `width:${w}px;height:${hgt}px` });
     if (opts.wrap && opts.wrap !== 'inline') img.dataset.wrap = opts.wrap;
     if (opts.name) img.dataset.name = String(opts.name).split(/[\\/]/).pop();
+    // 넣은 뒤에도 화면이 그 자리에 있게: 커서가 큰 그림 뒤로 가면 크롬이 커서 쪽으로 몇 쪽씩 내려가 버림
+    const ws = $('#workspace');
+    const st0 = ws ? ws.scrollTop : 0;
     const r = Sel.range();
     if (r) {
       r.deleteContents();
@@ -33,6 +36,13 @@ const Img = {
       Sel.editor.append(p);
     }
     Para.ensure();
+    if (ws) {
+      ws.scrollTop = st0;
+      const vr = ws.getBoundingClientRect(), ir = img.getBoundingClientRect();
+      // 그림 윗부분이 화면 밖이면 그림 위쪽이 보이게만 옮김
+      if (ir.top < vr.top + 10 || ir.top > vr.bottom - 60) ws.scrollTop += ir.top - (vr.top + vr.height * 0.25);
+      App.keepScroll(ws.scrollTop);
+    }
     return img;
   },
 
