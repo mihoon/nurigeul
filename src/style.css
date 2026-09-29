@@ -84,7 +84,7 @@ body.no-vruler #ruler-v, body.no-vruler #ruler-corner { display: none; }
 @keyframes mblink { 50% { opacity: 0; } }
 ::highlight(multi) { background-color: rgba(37, 99, 201, .30); }
 ::highlight(colblock) { background-color: rgba(37, 99, 201, .30); }
-#marks { position: absolute; inset: 0; pointer-events: none; z-index: 2; display: none; }
+#marks { position: absolute; inset: 0; pointer-events: none; z-index: 4; display: none; }
 body.show-marks #marks, body.show-paramarks #marks { display: block; }
 #marks span.obj { color: #fff; background: rgba(111, 150, 214, .85); font: 9px var(--ui-font); padding: 0 3px; border-radius: 2px; line-height: 13px; }
 #marks span.tabm { color: #6f96d6; }
@@ -201,6 +201,13 @@ body:not(.no-guides) #editor div.cols { outline: 1px dotted #b9c3dd; outline-off
 #editor .nobj > svg { display: block; overflow: visible; pointer-events: visiblePainted; }
 #editor .nobj > svg .hit { pointer-events: stroke; }
 #editor .nobj[data-kind="textbox"] { padding: 4px; line-height: 1.6; text-align: left; vertical-align: top; cursor: move; }
+/* 글상자 글자 세로 배치 (위 기본 / 가운데 / 아래) */
+#editor .nobj[data-kind="textbox"][data-va="middle"], #editor .nobj[data-kind="textbox"][data-va="bottom"] { display: inline-flex; flex-direction: column; justify-content: center; }
+#editor .nobj[data-kind="textbox"][data-va="bottom"] { justify-content: flex-end; }
+#editor .nobj[data-kind="textbox"][data-va] > .tb-body { width: 100%; }
+/* 도형 안 글자 세로 배치 (가운데 기본 / 위 / 아래) */
+#editor .nobj[data-va="top"] > .sh-text { align-items: flex-start; }
+#editor .nobj[data-va="bottom"] > .sh-text { align-items: flex-end; }
 #editor .nobj[data-kind="textbox"][data-wrap]:not([data-wrap="front"]):not([data-wrap="behind"]) { cursor: default; }
 #editor .nobj .tb-body { display: block; min-height: 1.6em; outline: none; cursor: text; user-select: text; white-space: pre-wrap; word-break: keep-all; overflow-wrap: anywhere; }
 #editor .nobj .sh-text { position: absolute; display: flex; align-items: center; line-height: 1.6; text-align: center; cursor: move; }

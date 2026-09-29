@@ -394,11 +394,24 @@ const Dialogs = {
       fields.push({ name: 'fillOn', label: '면 색 채우기', type: 'checkbox', value: !!d.fill && d.fill !== 'none' });
       fields.push({ name: 'fill', label: '면 색', type: 'color', value: d.fill && d.fill !== 'none' ? d.fill : '#ffffff' });
     }
+    if (isBox || Shapes.canHaveText(el)) {
+      fields.push({ type: 'section', label: '글자' });
+      fields.push({ name: 'va', label: '세로 배치', type: 'select', value: d.va || (isBox ? 'top' : 'middle'), options: [['top', '위'], ['middle', '가운데'], ['bottom', '아래']] });
+    }
+    if (isBox || d.shape === 'rect' || d.shape === 'roundrect') {
+      fields.push({ type: 'section', label: '모서리' });
+      fields.push({ name: 'rrPreset', label: '모양', type: 'select', value: '', options: [['', '(아래 곡률 값대로)'], ['0', '직각'], ['20', '둥근 모양 (20%)'], ['50', '반원 (50%)']] });
+      fields.push({ name: 'rr', label: '곡률', type: 'number', value: Shapes.roundPct(d), min: 0, max: 50, step: 1, suffix: '% (짧은 변 기준, 50 = 반원)' });
+    }
     fields.push({ type: 'section', label: '본문과의 배치' });
     fields.push({ name: 'wrap', label: '배치', type: 'select', value: d.wrap || 'inline', options: Shapes.WRAPS });
     fields.push(...Look.fields(el));
-    const v = await Dialog.form(isBox ? '글상자 속성' : '도형 속성', fields, { okLabel: '설정', width: 460 });
+    const v = await Dialog.form(isBox ? '글상자 속성' : '도형 속성', fields, {
+      okLabel: '설정', width: 460,
+      onChange: (n, inputs) => { if (n === 'rrPreset' && inputs.rrPreset.value !== '' && inputs.rr) inputs.rr.value = inputs.rrPreset.value; },
+    });
     if (v) v.sw = +v.sw;
+    if (v && v.rrPreset) v.rr = +v.rrPreset;
     return v;
   },
   async imageProps(img) {
@@ -501,7 +514,7 @@ const Dialogs = {
     Dialog.open({
       title: '누리글 정보', width: 420,
       body: h('div', { style: { lineHeight: 1.7 } },
-        h('div', { style: { fontSize: '18px', fontWeight: 'bold' } }, '누리글 1.5.40'),
+        h('div', { style: { fontSize: '18px', fontWeight: 'bold' } }, '누리글 1.5.43'),
         h('div', {}, '아래아한글 단축키 체계를 따르는 가벼운 문서 편집기'),
         h('div', { class: 'note' }, 'HWPX 열기/저장 · HWP 열기(HWPX로 변환) · DOCX/PDF 내보내기 · 표 · 그림 · 키 매크로 · 메일머지')),
       buttons: [{ label: '확인', primary: true }],

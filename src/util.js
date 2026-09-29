@@ -240,6 +240,7 @@ function blockOf(node) {
       return n;
     }
     if (n.nodeType === 1 && /^(TD|TH)$/.test(n.tagName)) return n; // 셀 직접 텍스트
+    if (n.nodeType === 1 && n.classList.contains('tb-body')) return n; // 글상자·도형 글자: 그 안의 글 전체를 한 문단처럼 (정렬 등)
     n = n.parentNode;
   }
   return null;

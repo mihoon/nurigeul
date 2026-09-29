@@ -322,6 +322,46 @@ const Marks = {
         if (rr) put(rr.right, rr.top, rr.height, '↓');
       });
     }
+    // 글상자·도형 안 글: 문단(줄 나눔 br로 구분) 끝마다 ↵
+    if (para) {
+      for (const tb of Sel.editor.querySelectorAll('.nobj .tb-body')) {
+        const brs = Array.from(tb.querySelectorAll('br'));
+        const last = brs[brs.length - 1];
+        const trailing = last && !(() => { let n = last; while (n && n !== tb) { if (n.nextSibling) return true; n = n.parentNode; } return false; })();
+        for (const brEl of brs) {
+          if (brEl === last && trailing) continue; // 끝의 자리표시 br
+          const r0 = brEl.getClientRects()[0];
+          if (r0) put(r0.left, r0.top, r0.height, '↵');
+        }
+        // Enter로 넣은 줄바꿈 글자(\n)도 문단 끝
+        const tw = document.createTreeWalker(tb, NodeFilter.SHOW_TEXT);
+        let tn;
+        const rg = document.createRange();
+        while ((tn = tw.nextNode())) {
+          const v = tn.nodeValue;
+          for (let i = v.indexOf('\n'); i >= 0; i = v.indexOf('\n', i + 1)) {
+            rg.setStart(tn, i); rg.setEnd(tn, i + 1);
+            const r0 = rg.getClientRects()[0];
+            if (r0) put(r0.left, r0.top, r0.height, '↵');
+          }
+        }
+        // 마지막 문단의 끝
+        const cs = getComputedStyle(tb);
+        const lh = parseFloat(cs.lineHeight) * z;
+        if (!trailing) {
+          const end = lastContentRect(tb);
+          if (end) put(end.right, end.top, end.height, '↵');
+          else { const r = tb.getBoundingClientRect(); put(r.left + (cs.textAlign === 'center' ? r.width / 2 : 0), r.top, Math.min(r.height, lh || r.height), '↵'); }
+        } else {
+          let pv = last.previousSibling;
+          while (pv && pv.nodeType === 3 && !pv.nodeValue) pv = pv.previousSibling;
+          const emptyLast = !pv || (pv.nodeType === 1 && pv.tagName === 'BR');
+          const rr = emptyLast ? null : rectBefore(last);
+          if (rr) put(rr.right, rr.top, rr.height, '↵');
+          else { const r = last.getClientRects()[0] || tb.getBoundingClientRect(); put(r.left, r.top, Math.min(r.height || lh, lh || r.height), '↵'); }
+        }
+      }
+    }
     if (ctrl) {
       const ed = Sel.editor;
       // 탭 →

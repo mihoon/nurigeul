@@ -55,6 +55,11 @@ const Shapes = {
     return el;
   },
 
+  // 모서리 곡률(%): 짧은 변의 몇 %를 반지름으로 (한글 '곡률'과 같음, 50 = 반원). 둥근 사각형 기본 20
+  roundPct(d) {
+    if (d.rr != null && d.rr !== '') return Math.max(0, Math.min(50, +d.rr || 0));
+    return d.shape === 'roundrect' ? 20 : 0;
+  },
   // SVG 그리기 (크기가 바뀔 때마다 다시)
   svg(d, w, hh) {
     const stroke = d.stroke || '#000000';
@@ -65,7 +70,7 @@ const Shapes = {
     let body = '';
     const shape = d.shape;
     if (shape === 'rect' || shape === 'roundrect') {
-      const rx = shape === 'roundrect' ? Math.min(w, hh) * 0.2 : 0;
+      const rx = Math.max(0, Math.min(w, hh) - sw) * this.roundPct(d) / 100;
       body = `<rect x="${p}" y="${p}" width="${Math.max(0, w - sw)}" height="${Math.max(0, hh - sw)}" rx="${rx}" fill="${fill}" ${st}/>`;
     } else if (shape === 'ellipse') {
       body = `<ellipse cx="${w / 2}" cy="${hh / 2}" rx="${Math.max(0, w / 2 - p)}" ry="${Math.max(0, hh / 2 - p)}" fill="${fill}" ${st}/>`;
@@ -110,6 +115,8 @@ const Shapes = {
       el.style.background = !d.fill || d.fill === 'none' ? '' : d.fill;
       // 글이 넘치면 늘어나도록 높이는 최소 높이로
       if (el.style.height) { el.style.minHeight = el.style.height; el.style.height = ''; }
+      const rr = this.roundPct(d);
+      el.style.borderRadius = rr ? Math.round(Math.min(w, hh || w) * rr / 100 * 10) / 10 + 'px' : '';
       let body = el.querySelector(':scope > .tb-body');
       if (!body) { body = h('span', { class: 'tb-body', contenteditable: 'true' }, h('br')); el.append(body); }
       body.setAttribute('contenteditable', 'true');
@@ -182,6 +189,8 @@ const Shapes = {
       stroke: d.stroke || '#000000', sw: +d.sw || 0, fill: !d.fill || d.fill === 'none' ? null : d.fill,
       dir: d.dir || 'dr', ah: d.ah === '1', at: d.at === '1', pts: d.pts || null,
     };
+    if (d.kind === 'textbox' || d.shape === 'rect' || d.shape === 'roundrect') m.rr = this.roundPct(d);
+    m.va = d.va || (d.kind === 'textbox' ? 'top' : 'middle');
     if (m.wrap === 'front' || m.wrap === 'behind') { m.x = parseFloat(el.style.left) || 0; m.y = parseFloat(el.style.top) || 0; }
     Object.assign(m, Look.model(el));
     if (m.kind === 'textbox') {
@@ -226,10 +235,11 @@ const Shapes = {
     }
     if (m.kind === 'textbox') {
       const bg = m.fill ? `background:${m.fill};` : '';
-      const bd = m.sw > 0 ? `border:${m.sw}px solid ${m.stroke};` : '';
-      return `<foreignObject x="${ox}" y="${oy}" width="${m.w}" height="${m.h}"><div xmlns="http://www.w3.org/1999/xhtml" style="box-sizing:border-box;width:${m.w}px;height:${m.h}px;padding:4px;${bg}${bd}font:10pt '함초롬바탕','HCR Batang','바탕',serif;line-height:1.6;color:#000;white-space:pre-wrap;word-break:keep-all;overflow-wrap:anywhere">${xhtml(m.html)}</div></foreignObject>`;
+      const bd = (m.sw > 0 ? `border:${m.sw}px solid ${m.stroke};` : '') + (m.rr ? `border-radius:${Math.min(m.w, m.h) * m.rr / 100}px;` : '');
+      const vj = m.va === 'middle' ? 'display:flex;flex-direction:column;justify-content:center;' : m.va === 'bottom' ? 'display:flex;flex-direction:column;justify-content:flex-end;' : '';
+      return `<foreignObject x="${ox}" y="${oy}" width="${m.w}" height="${m.h}"><div xmlns="http://www.w3.org/1999/xhtml" style="box-sizing:border-box;width:${m.w}px;height:${m.h}px;padding:4px;${vj}${bg}${bd}font:10pt '함초롬바탕','HCR Batang','바탕',serif;line-height:1.6;color:#000;white-space:pre-wrap;word-break:keep-all;overflow-wrap:anywhere">${xhtml(m.html)}</div></foreignObject>`;
     }
-    const d = { shape: m.kind, stroke: m.stroke, sw: m.sw, fill: m.fill || 'none', dir: m.dir, ah: m.ah ? '1' : '', at: m.at ? '1' : '', pts: m.pts };
+    const d = { shape: m.kind, stroke: m.stroke, sw: m.sw, fill: m.fill || 'none', dir: m.dir, ah: m.ah ? '1' : '', at: m.at ? '1' : '', pts: m.pts, rr: m.rr };
     let out = `<g transform="translate(${ox},${oy})">${this.svg(d, m.w, m.h).replace(/<svg[^>]*>|<\/svg>/g, '').replace(/<line[^>]*class="hit"\/>/, '')}</g>`;
     if (m.html) {
       // 도형 안 글자
@@ -237,7 +247,7 @@ const Shapes = {
       const ins = m.inset.split(/\s+/);
       const [t, r, b, l] = [ins[0], ins[1] || ins[0], ins[2] || ins[0], ins[3] || ins[1] || ins[0]];
       const x = px(l, m.w), y = px(t, m.h), w = m.w - x - px(r, m.w), hh = m.h - y - px(b, m.h);
-      out += `<foreignObject x="${ox + x}" y="${oy + y}" width="${w}" height="${hh}"><div xmlns="http://www.w3.org/1999/xhtml" style="width:${w}px;height:${hh}px;display:flex;align-items:center;font:10pt '함초롬바탕','HCR Batang','바탕',serif;line-height:1.6;color:#000;text-align:center;white-space:pre-wrap;word-break:keep-all;overflow-wrap:anywhere"><div style="width:100%">${xhtml(m.html)}</div></div></foreignObject>`;
+      out += `<foreignObject x="${ox + x}" y="${oy + y}" width="${w}" height="${hh}"><div xmlns="http://www.w3.org/1999/xhtml" style="width:${w}px;height:${hh}px;display:flex;align-items:${m.va === 'top' ? 'flex-start' : m.va === 'bottom' ? 'flex-end' : 'center'};font:10pt '함초롬바탕','HCR Batang','바탕',serif;line-height:1.6;color:#000;text-align:center;white-space:pre-wrap;word-break:keep-all;overflow-wrap:anywhere"><div style="width:100%">${xhtml(m.html)}</div></div></foreignObject>`;
     }
     return out;
   },
@@ -446,6 +456,15 @@ const Shapes = {
       if (!d.ah) delete d.ah;
     }
     if (a.dir && d.shape === 'line') d.dir = a.dir;
+    if (a.va && (d.kind === 'textbox' || this.canHaveText(el))) {
+      const def = d.kind === 'textbox' ? 'top' : 'middle';
+      if (a.va === def) delete d.va; else d.va = a.va;
+    }
+    if (a.rr != null && a.rr !== '' && (d.kind === 'textbox' || d.shape === 'rect' || d.shape === 'roundrect')) {
+      const v = Math.max(0, Math.min(50, Math.round(+a.rr || 0)));
+      d.rr = String(v);
+      if (d.kind !== 'textbox') d.shape = v > 0 ? 'roundrect' : 'rect';
+    }
     this.render(el);
     if (a.wrap) Img.setWrap(el, a.wrap);
     Img.drawBox();

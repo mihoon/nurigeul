@@ -239,7 +239,7 @@ const HWPX = (() => {
       const w = Math.max(0, U.px2hwp(sh.w)), hh = Math.max(0, U.px2hwp(sh.h));
       const id = nid();
       const tag = sh.kind === 'textbox' || sh.kind === 'rect' || sh.kind === 'roundrect' ? 'rect' : sh.kind === 'poly' ? 'polygon' : sh.kind;
-      const extraAttr = tag === 'rect' ? ` ratio="${sh.kind === 'roundrect' ? 20 : 0}"` : tag === 'ellipse' ? ' intervalDirty="0" hasArcPr="0" arcType="NORMAL"' : tag === 'line' ? ' isReverseHV="0"' : '';
+      const extraAttr = tag === 'rect' ? ` ratio="${sh.rr != null ? Math.round(sh.rr) : sh.kind === 'roundrect' ? 20 : 0}"` : tag === 'ellipse' ? ' intervalDirty="0" hasArcPr="0" arcType="NORMAL"' : tag === 'line' ? ' isReverseHV="0"' : '';
       const common = `<hp:offset x="0" y="0"/><hp:orgSz width="${w}" height="${hh}"/><hp:curSz width="${w}" height="${hh}"/><hp:flip horizontal="0" vertical="0"/>`
         + `<hp:rotationInfo angle="0" centerX="${Math.round(w / 2)}" centerY="${Math.round(hh / 2)}" rotateimage="1"/>`
         + '<hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo>';
@@ -250,7 +250,7 @@ const HWPX = (() => {
       let text = '';
       if (sh.kind === 'textbox' || (sh.blocks && tag !== 'line')) {
         const paras = (sh.blocks && sh.blocks.length ? sh.blocks : [{ t: 'p', runs: [] }]).map((b) => paraXml(b)).join('');
-        text = `<hp:drawText name="" editable="0" lastWidth="${w}"><hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="${sh.kind === 'textbox' ? 'TOP' : 'CENTER'}" linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">${paras}</hp:subList>${marginXml('textMargin', sh.im, [283, 283, 283, 283])}</hp:drawText>`;
+        text = `<hp:drawText name="${sh.kind === 'textbox' ? 'nurigeul:textbox' : 'nurigeul:shape'}" editable="0" lastWidth="${w}"><hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="${{ top: 'TOP', middle: 'CENTER', bottom: 'BOTTOM' }[sh.va] || (sh.kind === 'textbox' ? 'TOP' : 'CENTER')}" linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">${paras}</hp:subList>${marginXml('textMargin', sh.im, [283, 283, 283, 283])}</hp:drawText>`;
       }
       let geo;
       if (tag === 'rect') geo = `<hc:pt0 x="0" y="0"/><hc:pt1 x="${w}" y="0"/><hc:pt2 x="${w}" y="${hh}"/><hc:pt3 x="0" y="${hh}"/>`;
@@ -1159,14 +1159,24 @@ const HWPX = (() => {
     const textHtml = () => {
       const tmp = document.createElement('div');
       tmp.innerHTML = sub ? paragraphsHtml(kids(sub, 'p'), ctx, false) : '';
-      const lines = Array.from(tmp.children).filter((c) => c.tagName === 'P').map((p) => (p.innerHTML === '<br>' ? '' : p.innerHTML));
-      return `<span class="tb-body" contenteditable="true">${lines.join('<br>') || '<br>'}</span>`;
+      const ps = Array.from(tmp.children).filter((c) => c.tagName === 'P');
+      const lines = ps.map((p) => (p.innerHTML === '<br>' ? '' : p.innerHTML));
+      // 문단 정렬은 글상자 글 전체에 (첫 문단 기준)
+      const al = ps.length && ps[0].style.textAlign;
+      return `<span class="tb-body" contenteditable="true"${al ? ` style="text-align:${al}"` : ''}>${lines.join('<br>') || '<br>'}</span>`;
     };
     // 가운데 정렬된 글이 있는 도형은 "도형 안 글자", 나머지 사각형+글은 글상자
     const centered = sub && sub.getAttribute('vertAlign') === 'CENTER';
+    const mark = dt ? dt.getAttribute('name') : '';
     if (n === 'rect') {
-      if (dt && !centered) { kind = 'textbox'; body = textHtml(); }
+      // 누리글이 저장한 파일은 글상자/도형 구분 표시(drawText name)를 따름
+      const asBox = mark === 'nurigeul:textbox' ? true : mark === 'nurigeul:shape' ? false : !centered;
+      if (dt && asBox) { kind = 'textbox'; body = textHtml(); }
       else shape = num(node.getAttribute('ratio')) > 0 ? 'roundrect' : 'rect';
+      // 모서리 곡률 (한글 '곡률' %)
+      const ratio = num(node.getAttribute('ratio'), 0);
+      if (ratio > 0 && ratio !== 20) d.rr = Math.min(50, ratio);
+      else if (ratio > 0 && kind === 'textbox') d.rr = ratio;
     } else if (n === 'line') {
       const sp = kid(node, 'startPt'), ep = kid(node, 'endPt');
       let x1 = num(sp && sp.getAttribute('x')), y1 = num(sp && sp.getAttribute('y')), x2 = num(ep && ep.getAttribute('x')), y2 = num(ep && ep.getAttribute('y'));
@@ -1185,6 +1195,10 @@ const HWPX = (() => {
       d.pts = pts.map(([x, y]) => `${Math.round(x / W * 1000) / 1000},${Math.round(y / H * 1000) / 1000}`).join(' ');
     }
     if (kind === 'shape' && dt && n !== 'line') body = `<span class="sh-text">${textHtml()}</span>`;
+    if (sub) {
+      const va = { TOP: 'top', CENTER: 'middle', BOTTOM: 'bottom' }[sub.getAttribute('vertAlign')];
+      if (va && va !== (kind === 'textbox' ? 'top' : 'middle')) d.va = va;
+    }
     const attrs = [`class="nobj"`, `contenteditable="false"`, `data-kind="${kind}"`];
     if (kind === 'shape') attrs.push(`data-shape="${shape}"`);
     attrs.push(`data-stroke="${stroke}"`, `data-sw="${sw}"`, `data-fill="${fill}"`);
