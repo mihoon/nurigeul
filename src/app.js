@@ -908,7 +908,7 @@ const App = {
     this.updateStatus();
     if (Img.selected) Img.drawBox();
     Ruler.drawSoon();
-    if (Marks.updateSoon) Marks.updateSoon();
+    Marks.update();
     if (MultiSel.active) MultiSel.draw();
   },
   pageCount() { return this.pages || 1; },
@@ -1150,6 +1150,8 @@ App.bindEvents = function () {
     TabStops.onInput(e);
     if (MultiSel.active) MultiSel.draw();
     if (!ed.firstElementChild || ed.childNodes[0].nodeType === 3) Para.ensure();
+    // 문단 부호(↵)는 입력 즉시 다시 그림 — 쪽 나눔 계산(layout)을 기다리면 한 박자 늦게 나타남
+    if (document.body.classList.contains('show-paramarks') || document.body.classList.contains('show-marks')) Marks.update();
     // 글자를 입력한 뒤 남은 빈 자리 표시(ZWSP) 지우기: 방향키가 한 번 더 눌리는 문제 방지
     if (!e.isComposing) {
       const s = window.getSelection();
