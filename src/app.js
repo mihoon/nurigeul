@@ -1110,6 +1110,10 @@ App.bindEvents = function () {
     if (t === 'historyUndo') { e.preventDefault(); History.undo(); return; }
     if (t === 'historyRedo') { e.preventDefault(); History.redo(); return; }
     if (Table.block.active()) Table.block.clear();
+    // 셀 안 글 전체를 잡고 지우기·오려 두기·덮어 쓰기: 크롬은 셀 하나짜리 표면 표까지 지워 버림 → 셀 내용만 비움
+    if ((t.startsWith('delete') || t === 'insertText' || t === 'insertFromPaste') && !MultiSel.active && App.clearWholeCell()) {
+      if (t.startsWith('delete')) { e.preventDefault(); App.changed(); return; }
+    }
     if (t === 'insertText' && App.overwrite && !e.isComposing) {
       const s = window.getSelection();
       if (s.isCollapsed) {
@@ -1297,6 +1301,47 @@ function keyString(e) {
   return parts.join('+');
 }
 
+// 선택(또는 커서)이 한 셀 안에 있으면 그 셀
+App.cellOfSelection = function () {
+  const r = Sel.range();
+  if (!r || !Sel.editor.contains(r.startContainer)) return null;
+  const cell = (n) => { const el = n.nodeType === 1 ? n : n.parentElement; return el && el.closest('td, th'); };
+  const a = cell(r.startContainer), b = cell(r.endContainer);
+  return a && a === b && Sel.editor.contains(a) ? a : null;
+};
+App.cellFullySelected = function (td) {
+  const r = Sel.range();
+  if (!r || r.collapsed) return false;
+  const all = document.createRange();
+  all.selectNodeContents(td);
+  const norm = (x) => x.replace(/[\s\u200b]/g, '');
+  const txt = norm(td.textContent);
+  const objs = td.querySelector('img, .nobj, table');
+  if (!txt && !objs) return false;
+  if (norm(r.toString()) !== txt) return false;
+  // 그림·개체가 있으면 경계까지 모두 들어 있어야 전체
+  if (objs) return Array.from(td.querySelectorAll('img, .nobj, table')).every((o) => r.intersectsNode(o));
+  return true;
+};
+// 셀 내용 전체가 선택돼 있으면 셀을 빈 문단 하나로 비우고 커서를 넣음 (표는 그대로)
+App.clearWholeCell = function () {
+  const td = App.cellOfSelection();
+  if (!td || !App.cellFullySelected(td)) return false;
+  History.checkpoint();
+  const first = td.querySelector('p, li, h1, h2, h3, h4, h5, h6, div');
+  const p = first && first.parentElement === td ? first.cloneNode(false) : h('p');
+  // 첫 글자의 글자 모양은 이어 쓰도록 남김
+  const run = first && first.querySelector('span[style]');
+  const keep = run ? run.cloneNode(false) : null;
+  p.append(h('br'));
+  td.replaceChildren(p);
+  const rg = document.createRange();
+  if (keep) { keep.append(document.createTextNode('\u200b')); p.insertBefore(keep, p.firstChild); rg.setStart(keep.firstChild, 1); }
+  else rg.setStart(p, 0);
+  rg.collapse(true);
+  Sel.set(rg);
+  return true;
+};
 App.onKeyDown = function (e) {
   if (e.target.closest && e.target.closest('.dlg')) return; // 대화상자가 처리
   if (Dialog.stack.some((d) => !d.el.closest('.modeless'))) { e.preventDefault(); return; }
@@ -1337,6 +1382,17 @@ App.onKeyDown = function (e) {
     return;
   }
 
+  // ----- 셀 안에서 Ctrl+A: 먼저 그 셀 내용만, 한 번 더 누르면 문서 전체 -----
+  if (k === 'Ctrl+A' && !Table.block.active() && !Sel.closest('.tb-body')) {
+    const td = App.cellOfSelection();
+    if (td && !App.cellFullySelected(td)) {
+      stop();
+      const r = document.createRange();
+      r.selectNodeContents(td);
+      Sel.set(r);
+      return;
+    }
+  }
   // ----- 표 밖으로 나가기 (한글: Shift+Esc) -----
   if (k === 'Shift+Escape' && (Sel.closest('td, th') || Table.block.active()) && !Sel.closest('.tb-body')) { stop(); Table.exitAfter(); return; }
   // ----- 고른 표 (바깥 테두리를 눌러 고름) -----
