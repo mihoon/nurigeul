@@ -310,8 +310,10 @@ const Marks = {
         else {
           const br = b.getBoundingClientRect();
           const cs = getComputedStyle(b);
+          // 빈 문단은 첫 줄 자리에 부호: 내어쓰기(음수 들여쓰기)면 왼쪽으로 나간 첫 줄 시작점 (커서와 같은 자리)
           const indent = (parseFloat(cs.textIndent) || 0) * z;
-          put(br.left + Math.max(0, indent) + (cs.textAlign === 'center' ? br.width / 2 : cs.textAlign === 'right' ? br.width - 10 : 0), br.top, Math.min(br.height, parseFloat(cs.lineHeight) * z || br.height), '↵');
+          const padL = (parseFloat(cs.paddingLeft) || 0) * z + (parseFloat(cs.borderLeftWidth) || 0) * z;
+          put(br.left + padL + indent + (cs.textAlign === 'center' ? br.width / 2 : cs.textAlign === 'right' ? br.width - 10 : 0), br.top, Math.min(br.height, parseFloat(cs.lineHeight) * z || br.height), '↵');
         }
       }
       if (!ctrl) continue;

@@ -142,6 +142,8 @@ body.show-marks #marks, body.show-paramarks #marks { display: block; }
 #editor { counter-reset: fig; }
 /* 한글의 빈칸 폭: '글꼴에 어울리는 빈칸'을 쓰지 않으면 빈칸이 글자 크기의 절반 → 보통 글꼴의 빈칸(약 0.28em)보다 넓음 */
 #editor, #editor * { word-spacing: 0.22em; }
+/* 장평이 걸린 글은 빈칸도 장평만큼 줄임 (한글: 빈칸 = 글자 크기의 절반 × 장평) — 글자만 줄이면 영어처럼 빈칸 많은 줄이 길어짐 */
+#editor [style*="--hr"], #editor [style*="--hr"] * { word-spacing: calc(0.22em + (var(--hr) / 100 - 1) * 0.5em); }
 /* 한글 '줄 나눔 기준': 한글은 글자 단위(기본)·어절 단위(keep-all), 영어는 단어 단위(긴 단어만 쪼갬) */
 #editor [data-kw] { word-break: keep-all; }
 /* 도구 상자 접기 (Ctrl+F1) */
