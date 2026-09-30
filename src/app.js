@@ -79,7 +79,17 @@ const App = {
     try {
       if (!window.queryLocalFonts) return;
       const fonts = await window.queryLocalFonts();
-      const fam = Array.from(new Set(fonts.map((f) => f.family))).sort((a, b) => a.localeCompare(b, 'ko'));
+      // 한글처럼 굵기가 따로 있는 글꼴(나눔고딕 ExtraBold, 나눔고딕 Light 등)은 목록에 따로 보여 줌
+      // (크롬은 굵기를 한 가족으로 묶어 돌려주므로 '가족 + 굵기' 이름을 만들어 넣음)
+      const plain = /^(regular|normal|roman|book|bold|italic|oblique|bold italic|bold oblique)$/i;
+      const names = new Set();
+      for (const f of fonts) {
+        const famKo = FONT_KO[f.family] || f.family;
+        names.add(famKo);
+        const st = (f.style || '').trim();
+        if (st && !plain.test(st) && !/italic|oblique/i.test(st)) names.add(`${famKo} ${st}`);
+      }
+      const fam = Array.from(names).sort((a, b) => a.localeCompare(b, 'ko'));
       this.fonts = Array.from(new Set([...FONT_LIST, ...fam]));
       this.fillFontSelect();
     } catch { /* 권한 없음 */ }

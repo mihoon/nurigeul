@@ -440,15 +440,18 @@ function firstFamily(ff) {
 // "나눔고딕 ExtraBold"처럼 굵기가 붙은 글꼴 이름: Windows의 Chrome은 이런 이름을 글꼴 묶음(나눔고딕) 안의 한 굵기로만 알아서
 // 이름으로 찾지 못하고 다른 글꼴로 바뀌어 글자 폭이 달라짐 → @font-face local()로 그 글꼴 파일을 직접 가리킴
 const FONT_EN = { 나눔고딕: 'NanumGothic', 나눔명조: 'NanumMyeongjo', 나눔바른고딕: 'NanumBarunGothic', 나눔스퀘어: 'NanumSquare', 나눔스퀘어라운드: 'NanumSquareRound', 나눔스퀘어네오: 'NanumSquareNeo', 나눔바른펜: 'NanumBarunpen', 나눔고딕코딩: 'NanumGothicCoding', 맑은고딕: 'Malgun Gothic', '맑은 고딕': 'Malgun Gothic', 본고딕: 'Source Han Sans K', 노토산스: 'Noto Sans KR', 'Noto Sans KR': 'Noto Sans KR', 'Noto Sans CJK KR': 'Noto Sans CJK KR' };
+// 크롬이 돌려주는 영문 글꼴 이름 → 한글 2024 목록에 보이는 한글 이름
+const FONT_KO = { NanumGothic: '나눔고딕', NanumMyeongjo: '나눔명조', NanumBarunGothic: '나눔바른고딕', NanumSquare: '나눔스퀘어', NanumSquareRound: '나눔스퀘어라운드', NanumSquare_ac: '나눔스퀘어_ac', NanumSquareNeo: '나눔스퀘어네오', NanumBarunpen: '나눔바른펜', NanumGothicCoding: '나눔고딕코딩', 'NanumGothic Eco': '나눔고딕 에코', 'NanumMyeongjo Eco': '나눔명조 에코', 'Nanum Pen Script': '나눔손글씨 펜', 'Nanum Brush Script': '나눔손글씨 붓', 'Malgun Gothic': '맑은 고딕', Batang: '바탕', BatangChe: '바탕체', Dotum: '돋움', DotumChe: '돋움체', Gulim: '굴림', GulimChe: '굴림체', Gungsuh: '궁서', GungsuhChe: '궁서체', 'HCR Batang': '함초롬바탕', 'HCR Dotum': '함초롬돋움' };
 const FONT_WEIGHTS = { thin: 100, hairline: 100, extralight: 200, ultralight: 200, light: 300, regular: 400, book: 400, medium: 500, semibold: 600, demibold: 600, bold: 700, extrabold: 800, ultrabold: 800, heavy: 900, black: 900 };
 const fontAliasDone = new Set();
+function fontEn(ko) { return FONT_EN[ko] || Object.keys(FONT_KO).find((k) => FONT_KO[k] === ko) || null; }
 function fontAlias(name) {
   if (fontAliasDone.has(name)) return;
   fontAliasDone.add(name);
   const m = /^(.+?)\s*(Thin|Hairline|ExtraLight|UltraLight|Light|Book|Medium|SemiBold|DemiBold|ExtraBold|UltraBold|Bold|Heavy|Black)$/i.exec(name.trim());
   if (!m) return;
   const base = m[1].trim(), w = m[2], wKey = w.toLowerCase();
-  const en = FONT_EN[base] || (/^[\x20-\x7e]+$/.test(base) ? base : null);
+  const en = fontEn(base) || (/^[\x20-\x7e]+$/.test(base) ? base : null);
   const names = new Set([name, base + w, base + ' ' + w]);
   if (en) { names.add(`${en} ${w}`); names.add(en.replace(/\s+/g, '') + w); names.add(en.replace(/\s+/g, '') + '-' + w); names.add(`${en} ${w[0].toUpperCase()}${w.slice(1).toLowerCase()}`); }
   const src = [...names].map((n) => `local("${n.replace(/"/g, '')}")`).join(', ');
@@ -461,7 +464,7 @@ function fontStack(name) {
   fontAlias(name);
   const m = /^(.+?)\s*(Thin|Hairline|ExtraLight|UltraLight|Light|Book|Medium|SemiBold|DemiBold|ExtraBold|UltraBold|Bold|Heavy|Black)$/i.exec(name.trim());
   // 굵기 붙은 이름을 못 찾으면 같은 묶음 이름(나눔고딕)으로라도 — 폭이 가장 비슷함
-  const fam = m ? `, "${m[1].trim()}"${FONT_EN[m[1].trim()] ? `, "${FONT_EN[m[1].trim()]}"` : ''}` : '';
+  const fam = m ? `, "${m[1].trim()}"${fontEn(m[1].trim()) ? `, "${fontEn(m[1].trim())}"` : ''}` : '';
   return `"${name}"${fam}, ${generic}`;
 }
 function decoOf(el) {
