@@ -412,10 +412,68 @@ const Img = {
   },
 };
 
+// 그림 파일에 적힌 해상도(DPI) 읽기 — 한글처럼 이 값으로 실제 크기를 정함 (없으면 null → 화면 기준 96DPI)
+function imageDpi(url) {
+  try {
+    const m = /^data:([^;,]+)?(;base64)?,/.exec(url || '');
+    if (!m || !m[2]) return null;
+    let b64 = url.slice(m[0].length, m[0].length + 350000).replace(/[^A-Za-z0-9+/]/g, ''); // 앞부분(약 260KB)만 보면 충분
+    b64 = b64.slice(0, b64.length - (b64.length % 4));
+    const bin = atob(b64);
+    const u8 = (i) => bin.charCodeAt(i) & 255;
+    const be16 = (i) => (u8(i) << 8) | u8(i + 1), be32 = (i) => ((u8(i) << 24) >>> 0) + (u8(i + 1) << 16) + (u8(i + 2) << 8) + u8(i + 3);
+    const ok = (x) => x >= 30 && x <= 2400;
+    // PNG: pHYs (단위 1 = 미터당 점)
+    if (bin.slice(1, 4) === 'PNG') {
+      for (let i = 8; i + 8 <= bin.length;) {
+        const len = be32(i), typ = bin.slice(i + 4, i + 8);
+        if (typ === 'pHYs' && u8(i + 16) === 1) { const x = be32(i + 8) * 0.0254, y = be32(i + 12) * 0.0254; return ok(x) && ok(y) ? { x, y } : null; }
+        if (typ === 'IDAT' || typ === 'IEND') break;
+        i += 12 + len;
+      }
+      return null;
+    }
+    // JPEG: JFIF(APP0) 밀도, 없으면 EXIF(APP1) 해상도
+    if (u8(0) === 0xff && u8(1) === 0xd8) {
+      let exif = null;
+      for (let i = 2; i + 4 <= bin.length;) {
+        if (u8(i) !== 0xff) break;
+        const mk = u8(i + 1), len = be16(i + 2);
+        if (mk === 0xda || mk === 0xd9) break;
+        if (mk === 0xe0 && bin.slice(i + 4, i + 9) === 'JFIF\0') {
+          const unit = u8(i + 11), x = be16(i + 12), y = be16(i + 14);
+          const f = unit === 1 ? 1 : unit === 2 ? 2.54 : 0;
+          if (f && ok(x * f) && ok(y * f)) return { x: x * f, y: y * f };
+        }
+        if (mk === 0xe1 && bin.slice(i + 4, i + 10) === 'Exif\0\0' && !exif) {
+          const t = i + 10, le = bin.slice(t, t + 2) === 'II';
+          const r16 = (o) => (le ? u8(t + o) | (u8(t + o + 1) << 8) : be16(t + o));
+          const r32 = (o) => (le ? (u8(t + o) | (u8(t + o + 1) << 8) | (u8(t + o + 2) << 16)) + u8(t + o + 3) * 16777216 : be32(t + o));
+          const ifd = r32(4), n = r16(ifd), v = {};
+          for (let k = 0; k < n; k++) {
+            const e = ifd + 2 + k * 12, tag = r16(e);
+            if (tag === 282 || tag === 283) { const o = r32(e + 8); v[tag] = r32(o) / (r32(o + 4) || 1); }
+            else if (tag === 296) v[tag] = r16(e + 8);
+          }
+          const f = v[296] === 3 ? 2.54 : 1;
+          if (v[282] && v[283] && ok(v[282] * f) && ok(v[283] * f)) exif = { x: v[282] * f, y: v[283] * f };
+        }
+        i += 2 + len;
+      }
+      return exif;
+    }
+  } catch (e) { /* 해상도 정보 없음 */ }
+  return null;
+}
 function imageSize(url) {
   return new Promise((res) => {
     const im = new Image();
-    im.onload = () => res({ w: im.naturalWidth || 100, h: im.naturalHeight || 100 });
+    im.onload = () => {
+      let w = im.naturalWidth || 100, hh = im.naturalHeight || 100;
+      const d = imageDpi(url);
+      if (d) { w = Math.round(w * 96 / d.x * 100) / 100; hh = Math.round(hh * 96 / d.y * 100) / 100; }
+      res({ w, h: hh });
+    };
     im.onerror = () => res({ w: 100, h: 100 });
     im.src = url;
   });
