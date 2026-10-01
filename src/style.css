@@ -146,6 +146,9 @@ body.show-marks #marks, body.show-paramarks #marks { display: block; }
 #editor [style*="--hr"], #editor [style*="--hr"] * { word-spacing: calc(0.22em + (var(--hr) / 100 - 1) * 0.5em); }
 /* 한글 '줄 나눔 기준': 한글은 글자 단위(기본)·어절 단위(keep-all), 영어는 단어 단위(긴 단어만 쪼갬) */
 #editor [data-kw] { word-break: keep-all; }
+/* 한글은 '글자' 단위 줄 나눔이어도 양쪽 정렬이 아닐 때(왼쪽·가운데·오른쪽)는 어절을 쪼개지 않음 (한글 2024 문서의 줄 나눔 위치로 확인) */
+#editor :is([style*="text-align: left"], [style*="text-align:left"], [style*="text-align: center"], [style*="text-align:center"], [style*="text-align: right"], [style*="text-align:right"], [style*="text-align: start"], [style*="text-align:start"]) { word-break: keep-all; }
+#editor :is([style*="text-align: justify"], [style*="text-align:justify"]):not([data-kw]) { word-break: normal; }
 /* 도구 상자 접기 (Ctrl+F1) */
 body.no-toolbar #toolbar, body.no-toolbar #formatbar { display: none; }
 #editor .figure { display: inline-flex; flex-direction: column; vertical-align: bottom; text-indent: 0; max-width: 100%; }

@@ -269,11 +269,17 @@ const Dialogs = {
       { name: 'asDefault', label: '이 용지·여백을 새 문서 기본값으로', type: 'checkbox', value: false },
     ], {
       okLabel: '설정', width: 440,
-      note: '용지 종류를 고르면 폭과 길이가 바뀝니다. 폭·길이를 직접 고치고 이름을 넣으면 ★ 사용자 정의 용지로 저장되어 다음부터 목록에 나옵니다.',
+      note: '용지 종류를 고르면 폭과 길이가 바뀝니다. 폭·길이·여백을 정하고 이름을 넣으면 ★ 사용자 정의 용지로 저장되어 다음부터 목록에 나오고, 고르면 저장한 여백도 함께 들어갑니다.',
       onChange: (name, inputs) => {
         if (name === 'paper') {
           const d = sizeOf(inputs.paper.value);
           if (d) { inputs.w.value = Math.min(...d); inputs.hh.value = Math.max(...d); }
+          // ★ 사용자 용지는 함께 저장한 여백·방향도 되살림
+          const c = inputs.paper.value.startsWith('c:') && customs.find((x) => 'c:' + x.name === inputs.paper.value);
+          if (c && c.m) {
+            for (const k of ['top', 'bottom', 'left', 'right', 'header', 'footer']) if (c.m[k] != null && inputs[k]) inputs[k].value = c.m[k];
+            if (c.orient && inputs.orient) inputs.orient.value = c.orient;
+          }
         } else if (name === 'w' || name === 'hh') {
           inputs.paper.value = 'custom';
         }
@@ -285,7 +291,7 @@ const Dialogs = {
     const name = (v.saveName || '').trim();
     let list = customs;
     if (v.delCustom && v.paper.startsWith('c:')) list = list.filter((c) => 'c:' + c.name !== v.paper);
-    if (name) list = [...list.filter((c) => c.name !== name), { name, w: Math.min(w, hh), h: Math.max(w, hh) }];
+    if (name) list = [...list.filter((c) => c.name !== name), { name, w: Math.min(w, hh), h: Math.max(w, hh), orient: v.orient, m: { top: v.top, bottom: v.bottom, left: v.left, right: v.right, header: v.header, footer: v.footer } }];
     if (v.orient === 'landscape') [w, hh] = [Math.max(w, hh), Math.min(w, hh)];
     else [w, hh] = [Math.min(w, hh), Math.max(w, hh)];
     const page = { width: w, height: hh, top: v.top, bottom: v.bottom, left: v.left, right: v.right, header: v.header, footer: v.footer };
@@ -514,7 +520,7 @@ const Dialogs = {
     Dialog.open({
       title: '누리글 정보', width: 420,
       body: h('div', { style: { lineHeight: 1.7 } },
-        h('div', { style: { fontSize: '18px', fontWeight: 'bold' } }, '누리글 1.5.53'),
+        h('div', { style: { fontSize: '18px', fontWeight: 'bold' } }, '누리글 1.5.54'),
         h('div', {}, '아래아한글 단축키 체계를 따르는 가벼운 문서 편집기'),
         h('div', { class: 'note' }, 'HWPX 열기/저장 · HWP 열기(HWPX로 변환) · DOCX/PDF 내보내기 · 표 · 그림 · 키 매크로 · 메일머지')),
       buttons: [{ label: '확인', primary: true }],

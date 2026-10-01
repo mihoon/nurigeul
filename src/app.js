@@ -1239,6 +1239,9 @@ App.bindEvents = function () {
   }, { passive: false });
   // 용지 바깥 클릭 → 문서 끝으로
   ws.addEventListener('mousedown', (e) => {
+    // 스크롤바를 누르거나 끌 때도 mousedown이 #workspace로 옴 → 커서를 옮기면 안 됨 (Shift+클릭 블록이 문서 끝까지 잡힘)
+    const wr = ws.getBoundingClientRect();
+    if (e.clientX >= wr.left + ws.clientLeft + ws.clientWidth || e.clientY >= wr.top + ws.clientTop + ws.clientHeight) return;
     if (e.target === ws || e.target.id === 'zoomer') {
       e.preventDefault();
       const last = ed.lastElementChild;
