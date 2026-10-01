@@ -609,7 +609,11 @@ const App = {
     const m = kids.map((b) => {
       const cs = getComputedStyle(b);
       const mt = parseFloat(cs.marginTop) || 0, mb = parseFloat(cs.marginBottom) || 0;
-      return { top: b.offsetTop - mt, h: b.offsetHeight + mt + mb, mt, out: cs.position === 'absolute' || cs.float !== 'none' };
+      // 한글은 쪽 끝 줄이 '글자 높이'만 들어가면 그 쪽에 둠: 줄 간격 여분(줄 높이 - 글자 크기)과 문단 아래 간격은 쪽 끝에서 따지지 않음
+      const lh = parseFloat(cs.lineHeight), fs = parseFloat(cs.fontSize) || 0;
+      const lead = lh > fs ? lh - fs : 0;
+      const pb = parseFloat(cs.paddingBottom) || 0; // 한글 '문단 아래' 간격은 padding-bottom으로 들어옴
+      return { top: b.offsetTop - mt, h: b.offsetHeight + mt + mb, mt, mb: mb + pb, lead, out: cs.position === 'absolute' || cs.float !== 'none' };
     });
     const TOL = Math.min(14, CH * 0.015);
     // 꼬리말이 없으면 한글은 표의 마지막 줄이 꼬리말 자리까지 내려가도 그 쪽에 둠
@@ -758,7 +762,7 @@ const App = {
       let gap = 0;
       let pgs = 0; // 문단을 쪽 경계에서 줄 단위로 나눠 넣은 빈 자리 합
       if (paged && top > pk * pitch + 1 && top >= cEnd - 0.5) gap = (pk + 1) * pitch - top; // 쪽 여백에서 시작하면 다음 쪽으로
-      else if (paged && top + e.h > cEnd + 0.5) {
+      else if (paged && /^(P|H[1-6]|DIV)$/.test(b.tagName) ? top + e.h - e.mb - e.lead > cEnd + 0.5 : (paged && top + e.h > cEnd + 0.5)) {
         // 한글처럼 문단을 줄 단위로 나눠 다음 쪽으로 이어 씀 (첫 줄부터 넘치면 문단째 넘김)
         const L = /^(P|H[1-6])$/.test(b.tagName) ? lineInfo(b) : null;
         let base = top, cut = [], splitDone = false;
@@ -766,9 +770,9 @@ const App = {
           let k = pk;
           for (let li = 0; li < L.lines.length; li++) {
             const ln = L.lines[li];
-            const lt = base + ln.top, lb = base + ln.bottom;
+            const lt = base + e.mt + ln.top, lb = base + e.mt + ln.bottom;
             const ce = k * pitch + CH;
-            if (lb > ce + 0.5) {
+            if (lb - e.lead > ce + 0.5) {
               if (li === 0) { if (top > pk * pitch + 1 && e.h <= CH) { cut = null; } break; }
               if (!ln.node) { cut = null; break; }
               const g = (k + 1) * pitch - lt;
@@ -1114,6 +1118,8 @@ App.bindEvents = function () {
     if ((t.startsWith('delete') || t === 'insertText' || t === 'insertFromPaste') && !MultiSel.active && App.clearWholeCell()) {
       if (t.startsWith('delete')) { e.preventDefault(); App.changed(); return; }
     }
+    // 문단 합치기(문단 맨 앞 Backspace, 맨 끝 Delete)는 직접: 크롬은 합치면서 문단 서식(내어쓰기·여백)을 글자 상자에 복사해 넣어 첫 줄이 밀림
+    if ((t === 'deleteContentBackward' || t === 'deleteContentForward') && !MultiSel.active && !ColBlock.active && App.mergeParas(t === 'deleteContentForward')) { e.preventDefault(); App.changed(); return; }
     if (t === 'insertText' && App.overwrite && !e.isComposing) {
       const s = window.getSelection();
       if (s.isCollapsed) {
@@ -1304,6 +1310,57 @@ function keyString(e) {
   return parts.join('+');
 }
 
+// 커서가 문단 맨 앞(Backspace) 또는 맨 끝(Delete)일 때 앞뒤 문단을 합침. 합칠 수 없는 경우는 false (크롬 기본 동작)
+App.mergeParas = function (forward) {
+  const s = window.getSelection();
+  if (!s.rangeCount || !s.isCollapsed) return false;
+  const r = s.getRangeAt(0);
+  const isPara = (el) => el && /^(P|H[1-6])$/.test(el.tagName) && !el.closest('.tb-body, .nobj, .figcap');
+  const blk = blockOf(r.startContainer);
+  if (!isPara(blk) || !Sel.editor.contains(blk)) return false;
+  const vis = (rg) => rg.toString().replace(/\u200b/g, '');
+  const edge = document.createRange();
+  if (forward) { edge.setStart(r.startContainer, r.startOffset); edge.setEnd(blk, blk.childNodes.length); }
+  else { edge.setStart(blk, 0); edge.setEnd(r.startContainer, r.startOffset); }
+  if (vis(edge) !== '') return false;
+  const frag = edge.cloneContents();
+  if (frag.querySelector && frag.querySelector('img, .nobj, .tab, .mm-field, table')) return false;
+  const A = forward ? blk : blk.previousElementSibling, B = forward ? blk.nextElementSibling : blk;
+  if (!isPara(A) || !isPara(B) || A.parentNode !== B.parentNode) return false;
+  const empty = (el) => !el.textContent.replace(/[\u200b]/g, '') && !el.querySelector('img, .nobj, .tab, .mm-field, table');
+  History.checkpoint();
+  const caretAt = (node, off) => { const rg = document.createRange(); rg.setStart(node, off); rg.collapse(true); Sel.set(rg); };
+  if (empty(A)) {
+    // 빈 문단을 지움 — 남는 문단의 서식(내어쓰기 등)은 그대로
+    A.remove();
+    const tw = document.createTreeWalker(B, NodeFilter.SHOW_TEXT);
+    const f = tw.nextNode();
+    if (f) caretAt(f, 0); else Sel.caretInto(B, false);
+    return true;
+  }
+  if (empty(B)) {
+    B.remove();
+    Sel.caretInto(A, true);
+    return true;
+  }
+  // 둘 다 글이 있으면 B의 내용을 A 끝에 옮김 (A의 문단 서식 유지)
+  A.querySelectorAll(':scope > br:last-child').forEach((x) => x.remove());
+  B.querySelectorAll('span.pgs, wbr.pgsw').forEach((x) => x.remove());
+  // 나눈 자리 양쪽 띄어쓰기를 크롬이 &nbsp;로 바꿔 둔 것을 보통 빈칸으로 되돌림
+  const lastText = (el, back) => { const tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let t, res = null; while ((t = tw.nextNode())) { if (t.nodeValue.replace(/\u200b/g, '')) { res = t; if (!back) break; } } return res; };
+  const ta = lastText(A, true), tb = lastText(B, false);
+  if (ta && /\u00a0$/.test(ta.nodeValue)) ta.nodeValue = ta.nodeValue.replace(/\u00a0$/, ' ');
+  if (tb && /^\u00a0/.test(tb.nodeValue)) tb.nodeValue = tb.nodeValue.replace(/^\u00a0/, ' ');
+  const first = B.firstChild;
+  while (B.firstChild) A.append(B.firstChild);
+  B.remove();
+  A.removeAttribute('data-hl'); A.removeAttribute('data-hh'); A.classList.remove('hl-lock');
+  if (first && first.isConnected) {
+    if (first.nodeType === 3) caretAt(first, 0);
+    else { const tw = document.createTreeWalker(first, NodeFilter.SHOW_TEXT); const f = tw.nextNode(); if (f) caretAt(f, 0); else { const rg = document.createRange(); rg.setStartBefore(first); rg.collapse(true); Sel.set(rg); } }
+  }
+  return true;
+};
 // 선택(또는 커서)이 한 셀 안에 있으면 그 셀
 App.cellOfSelection = function () {
   const r = Sel.range();

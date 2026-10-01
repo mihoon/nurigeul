@@ -520,7 +520,7 @@ const Dialogs = {
     Dialog.open({
       title: '누리글 정보', width: 420,
       body: h('div', { style: { lineHeight: 1.7 } },
-        h('div', { style: { fontSize: '18px', fontWeight: 'bold' } }, '누리글 1.5.54'),
+        h('div', { style: { fontSize: '18px', fontWeight: 'bold' } }, '누리글 1.5.56'),
         h('div', {}, '아래아한글 단축키 체계를 따르는 가벼운 문서 편집기'),
         h('div', { class: 'note' }, 'HWPX 열기/저장 · HWP 열기(HWPX로 변환) · DOCX/PDF 내보내기 · 표 · 그림 · 키 매크로 · 메일머지')),
       buttons: [{ label: '확인', primary: true }],
