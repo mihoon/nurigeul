@@ -430,3 +430,9 @@ body.printing #editor, body.printing #editor * { caret-color: transparent !impor
 body.printing #mcarets, body.printing .mcaret { display: none !important; }
 body.printing ::selection { background: transparent !important; }
 @media print { #editor, #editor * { caret-color: transparent !important; } ::selection { background: transparent !important; } #mcarets { display: none !important; } }
+
+/* 덧말 (한글: 본말 위·아래 작은 글자) */
+#editor ruby.dutmal { ruby-position: over; ruby-align: center; }
+#editor ruby.dutmal[data-pos="BOTTOM"] { ruby-position: under; }
+#editor ruby.dutmal[data-align="LEFT"] { ruby-align: start; }
+#editor ruby.dutmal > rt { font-size: 50%; line-height: 1; text-indent: 0; }

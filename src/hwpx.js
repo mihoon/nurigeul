@@ -121,6 +121,12 @@ const HWPX = (() => {
         if (r.img) { flush(); x += `<hp:run charPrIDRef="${charPrId(lastStyle)}">${picXml(r.img)}<hp:t/></hp:run>`; continue; }
         if (r.pageHide) { flush(); const f = r.pageHide; x += `<hp:run charPrIDRef="${charPrId(lastStyle)}"><hp:ctrl><hp:pageHiding hideHeader="${f.includes('h') ? 1 : 0}" hideFooter="${f.includes('f') ? 1 : 0}" hideMasterPage="0" hideBorder="0" hideFill="0" hidePageNum="${f.includes('p') ? 1 : 0}"/></hp:ctrl></hp:run>`; continue; }
         if (r.autoNum) { flush(); lastStyle = r; x += `<hp:run charPrIDRef="${charPrId(r)}"><hp:t>그림 </hp:t><hp:ctrl><hp:autoNum num="1" numType="${r.autoNum}"><hp:autoNumFormat type="DIGIT" userChar="" prefixChar="" suffixChar="" supscript="0"/></hp:autoNum></hp:ctrl><hp:t/></hp:run>`; continue; }
+        if (r.dutmal) {
+          flush(); lastStyle = r;
+          const d = r.dutmal;
+          x += `<hp:run charPrIDRef="${charPrId(r)}"><hp:dutmal posType="${d.pos === 'BOTTOM' ? 'BOTTOM' : 'TOP'}" szRatio="${d.sz && d.sz !== 50 ? Math.round(d.sz) : 0}" option="0" styleIDRef="0" align="${d.align || 'CENTER'}"><hp:mainText>${textXml(d.main || '')}</hp:mainText><hp:subText>${textXml(d.sub || '')}</hp:subText></hp:dutmal><hp:t/></hp:run>`;
+          continue;
+        }
         if (r.newNum) { flush(); x += `<hp:run charPrIDRef="${charPrId(lastStyle)}"><hp:ctrl><hp:newNum num="${r.newNum}" numType="PAGE"/></hp:ctrl></hp:run>`; continue; }
         if (r.shape) { flush(); x += `<hp:run charPrIDRef="${charPrId(lastStyle)}">${shapeXml(r.shape)}<hp:t/></hp:run>`; continue; }
         if (r.text != null) {
@@ -152,7 +158,7 @@ const HWPX = (() => {
       const horz = { left: 'LEFT', right: 'RIGHT', center: 'CENTER' }[img.wrap] || 'LEFT';
       const wrap = inline ? 'SQUARE' : img.wrap === 'center' ? 'TOP_AND_BOTTOM' : floating ? (img.wrap === 'front' ? 'IN_FRONT_OF_TEXT' : 'BEHIND_TEXT') : 'SQUARE';
       const posXml = posXmlOf(img);
-      return `<hp:pic textWrap="${wrap}" textFlow="BOTH_SIDES" reverse="0" id="${id}" zOrder="${bins.length}" numberingType="PICTURE" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${id}">`
+      return `<hp:pic textWrap="${wrap}" textFlow="BOTH_SIDES" reverse="0" id="${id}" zOrder="${img.z != null ? img.z : bins.length}" numberingType="PICTURE" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${id}">`
         + `<hp:offset x="0" y="0"/><hp:orgSz width="${w}" height="${hh}"/><hp:curSz width="${w}" height="${hh}"/><hp:flip horizontal="0" vertical="0"/>`
         + `<hp:rotationInfo angle="0" centerX="${Math.round(w / 2)}" centerY="${Math.round(hh / 2)}" rotateimage="1"/>`
         + `<hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo>`
@@ -186,7 +192,7 @@ const HWPX = (() => {
       // 가로 위치를 옮긴 표 (불러온 문서): 글자처럼 취급하지 않고 단 왼쪽에서 떨어진 거리로
       if (o.t === 'table' && inline && (o.shift > 0 || o.vshift > 0)) return `<hp:pos treatAsChar="0" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="${o.shift > 0 ? 'LEFT' : ({ center: 'CENTER', right: 'RIGHT' }[o.align] || 'LEFT')}" vertOffset="${U.px2hwp(o.vshift || 0)}" horzOffset="${U.px2hwp(o.shift || 0)}"/>`;
       const horz = { left: 'LEFT', right: 'RIGHT', center: 'CENTER' }[inline ? inlineAlign || 'left' : w] || 'LEFT';
-      return `<hp:pos treatAsChar="${inline ? 1 : 0}" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="${horz}" vertOffset="0" horzOffset="0"/>`;
+      return `<hp:pos treatAsChar="${inline ? 1 : 0}" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="${horz}" vertOffset="${!inline && o.vdrop ? U.px2hwp(o.vdrop) : 0}" horzOffset="0"/>`;
     }
     function outMarginOf(o) {
       if (o.om) { const q = o.om.map((v) => Math.max(0, Math.round(U.mm2hwp(v)))); return `<hp:outMargin left="${q[3]}" right="${q[1]}" top="${q[0]}" bottom="${q[2]}"/>`; }
@@ -226,7 +232,7 @@ const HWPX = (() => {
         const inner = c.img ? picXml(c.img) : c.shape.kind === 'group' ? containerXml(c.shape, level + 1) : shapeXml(c.shape);
         return memberize(inner, c.lx, c.ly, level + 1);
       }).join('');
-      return `<hp:container id="${id}" zOrder="${++zSeq}" numberingType="PICTURE" textWrap="${wrapAttr(g)}" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="${level}" instid="${id}">`
+      return `<hp:container id="${id}" zOrder="${g.z != null ? g.z : ++zSeq}" numberingType="PICTURE" textWrap="${wrapAttr(g)}" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="${level}" instid="${id}">`
         + `<hp:offset x="0" y="0"/><hp:orgSz width="${w}" height="${hh}"/><hp:curSz width="${w}" height="${hh}"/><hp:flip horizontal="0" vertical="0"/>`
         + `<hp:rotationInfo angle="0" centerX="${Math.round(w / 2)}" centerY="${Math.round(hh / 2)}" rotateimage="1"/>`
         + '<hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo>'
@@ -263,7 +269,7 @@ const HWPX = (() => {
         const pts = (sh.pts || '0.5,0 1,1 0,1').split(/\s+/).filter(Boolean).map((p) => p.split(',').map(Number));
         geo = pts.map(([x, y]) => `<hc:pt x="${Math.round(x * w)}" y="${Math.round(y * hh)}"/>`).join('');
       }
-      return `<hp:${tag}${extraAttr} id="${id}" zOrder="${++zSeq}" numberingType="NONE" textWrap="${wrapAttr(sh)}" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${id}">`
+      return `<hp:${tag}${extraAttr} id="${id}" zOrder="${sh.z != null ? sh.z : ++zSeq}" numberingType="NONE" textWrap="${wrapAttr(sh)}" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${id}">`
         + common + line + fill + shadow + text + geo
         + `<hp:sz width="${w}" widthRelTo="ABSOLUTE" height="${hh}" heightRelTo="ABSOLUTE" protect="0"/>`
         + posXmlOf(sh) + outMarginOf(sh) + `</hp:${tag}>`;
@@ -277,7 +283,7 @@ const HWPX = (() => {
       const tw = t.widths.reduce((a, b) => a + b, 0);
       const W = U.px2hwp(tw), H = U.px2hwp(t.heights.reduce((a, b) => a + b, 0));
       const floating = t.wrap === 'front' || t.wrap === 'behind';
-      let x = `<hp:tbl id="${nid()}" zOrder="${++zSeq}" numberingType="TABLE" textWrap="${wrapAttr(t)}" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="${floating ? 'NONE' : (t.pb || 'CELL')}" repeatHeader="0" rowCnt="${t.nr}" colCnt="${t.nc}" cellSpacing="0" borderFillIDRef="${bfId(null)}" noAdjust="0">`
+      let x = `<hp:tbl id="${nid()}" zOrder="${t.z != null ? t.z : ++zSeq}" numberingType="TABLE" textWrap="${wrapAttr(t)}" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="${floating ? 'NONE' : (t.pb || 'CELL')}" repeatHeader="0" rowCnt="${t.nr}" colCnt="${t.nc}" cellSpacing="0" borderFillIDRef="${bfId(null)}" noAdjust="0">`
         + `<hp:sz width="${W}" widthRelTo="ABSOLUTE" height="${H}" heightRelTo="ABSOLUTE" protect="0"/>`
         + posXmlOf(t, t.align)
         + outMarginOf(t) + bgMetaXml(t) + marginXml('inMargin', t.im, [141, 510, 141, 510]);
@@ -801,6 +807,7 @@ const HWPX = (() => {
             if (inner) { cur += wrap(inner); hasContent = true; }
           } else if (n === 'tab') { cur += wrap('\t'); hasContent = true; }
           else if (n === 'lineBreak') { cur += '<br>'; hasContent = true; }
+          else if (n === 'dutmal') { cur += wrap(dutmalHtml(node)); hasContent = true; }
           else if (n === 'tbl') {
             flushPara(false);
             // 한 문단에 붙은 두 번째 이후 표 (앞 표가 여러 쪽에 걸치면 한글은 다음 쪽에서 시작)
@@ -913,6 +920,14 @@ const HWPX = (() => {
     }
     return out;
   }
+  // 덧말: 본말 위(아래)에 작은 글자. HTML ruby로 보여 줌 (szRatio 0 = 한글 기본 50%)
+  function dutmalHtml(d) {
+    const main = kid(d, 'mainText'), sub = kid(d, 'subText');
+    const pos = (d.getAttribute('posType') || 'TOP').toUpperCase() === 'BOTTOM' ? 'BOTTOM' : 'TOP';
+    const sz = num(d.getAttribute('szRatio'), 0) || 50;
+    const al = (d.getAttribute('align') || 'CENTER').toUpperCase();
+    return `<ruby class="dutmal" data-pos="${pos}" data-sz="${sz}" data-align="${al}">${main ? textOf(main) : ''}<rt style="font-size:${sz}%">${sub ? textOf(sub) : ''}</rt></ruby>`;
+  }
   function textOf(t) {
     let s = '';
     for (const n of Array.from(t.childNodes)) {
@@ -1018,12 +1033,26 @@ const HWPX = (() => {
     const szEl = kid(pic, 'sz'), cur = kid(pic, 'curSz');
     let w = dim(szEl, 'width') || dim(cur, 'width'), hh = dim(szEl, 'height') || dim(cur, 'height');
     const { wrap, extra } = wrapOf(pic);
-    const style = w && hh ? ` style="width:${Math.round(w)}px;height:${Math.round(hh)}px"` : '';
+    // 어울림(왼쪽/오른쪽) 그림이 문단 위에서 아래로 떨어져 있으면(세로 위치): 그 높이만큼 위쪽 글은 그림 옆이 아니라 전체 폭으로
+    const pos0 = kid(pic, 'pos');
+    let vdrop = 0;
+    if ((wrap === 'left' || wrap === 'right') && pos0 && pos0.getAttribute('vertRelTo') === 'PARA') vdrop = Math.round(U.hwp2px(num(pos0.getAttribute('vertOffset'))));
+    if (vdrop < 0 || vdrop > 2000) vdrop = 0;
+    // 어울림 그림의 바깥 여백은 파일 값대로 (한글은 0인 경우가 많음 — 누리글 기본 여백 10px이면 옆 글이 한 줄 더 올라붙음)
+    let mg = '';
+    if (wrap === 'left' || wrap === 'right') {
+      const om = kid(pic, 'outMargin');
+      if (om) {
+        const q = (n) => Math.round(U.hwp2px(num(om.getAttribute(n))) * 10) / 10;
+        mg = `;margin:${q('top') + vdrop}px ${q('right')}px ${q('bottom')}px ${q('left')}px`;
+      } else if (vdrop) mg = `;margin-top:${vdrop}px`;
+    }
+    const style = w && hh ? ` style="width:${Math.round(w)}px;height:${Math.round(hh)}px${mg}${vdrop ? `;shape-outside:inset(${vdrop}px 0 0 0)` : ''}"${vdrop ? ` data-vdrop="${vdrop}"` : ''}` : '';
     // 한글이 적어 두는 개체 설명: "원본 그림의 이름: 사진.jpg"
     const cm = kid(pic, 'shapeComment');
     const nm = cm && /원본 그림의 이름\s*:\s*([^\r\n]+)/.exec(cm.textContent || '');
     const nameAttr = nm ? ` data-name="${escHtml(nm[1].trim().split(/[\\/]/).pop())}"` : '';
-    const imgHtml = `<img src="${url}"${style}${wrap ? ` data-wrap="${wrap}"` : ''}${extra}${lookAttrs(pic, wrap)}${nameAttr}>`;
+    const imgHtml = `<img src="${url}"${style}${wrap ? ` data-wrap="${wrap}"` : ''}${extra}${pic.getAttribute('zOrder') ? ` data-z="${+pic.getAttribute('zOrder')}"` : ''}${lookAttrs(pic, wrap)}${nameAttr}>`;
     const cap = kid(pic, 'caption');
     if (!cap) return imgHtml;
     return `<span class="figure" contenteditable="false" data-cap="${cap.getAttribute('side') === 'TOP' ? 'top' : 'bottom'}"${w ? ` style="width:${Math.round(w)}px"` : ''}>${imgHtml}${captionHtml(cap, ctx)}</span>`;
@@ -1132,7 +1161,7 @@ const HWPX = (() => {
     }
     const { wrap, extra } = inner ? { wrap: '', extra: '' } : wrapOf(node);
     const W = Math.round(cur[0] * 10) / 10, H = Math.round(cur[1] * 10) / 10;
-    return `<span class="nobj" contenteditable="false" data-kind="group" data-bw="${W}" data-bh="${H}"${wrap ? ` data-wrap="${wrap}"` : ''}${extra} style="width:${W}px;height:${H}px">${tmp.dataset.out || ''}</span>`;
+    return `<span class="nobj" contenteditable="false" data-kind="group" data-bw="${W}" data-bh="${H}"${wrap ? ` data-wrap="${wrap}"` : ''}${extra}${node.getAttribute('zOrder') ? ` data-z="${+node.getAttribute('zOrder')}"` : ''} style="width:${W}px;height:${H}px">${tmp.dataset.out || ''}</span>`;
   }
   // 도형·글상자
   function shapeHtml(node, ctx) {
@@ -1160,9 +1189,10 @@ const HWPX = (() => {
       const tmp = document.createElement('div');
       tmp.innerHTML = sub ? paragraphsHtml(kids(sub, 'p'), ctx, false) : '';
       const ps = Array.from(tmp.children).filter((c) => c.tagName === 'P');
-      const lines = ps.map((p) => (p.innerHTML === '<br>' ? '' : p.innerHTML));
+      const lines = ps.map((p) => (!p.textContent.replace(/\u200b/g, '') && !p.querySelector('img, .nobj') ? '' : p.innerHTML));
       // 문단 정렬은 글상자 글 전체에 (첫 문단 기준)
-      const al = ps.length && ps[0].style.textAlign;
+      // 한글 양쪽 정렬(JUSTIFY)은 문단 서식에 정렬이 빠짐 → 도형의 가운데 기본값이 아니라 양쪽 정렬로
+      const al = ps.length ? (ps[0].style.textAlign || 'justify') : '';
       return `<span class="tb-body" contenteditable="true"${al ? ` style="text-align:${al}"` : ''}>${lines.join('<br>') || '<br>'}</span>`;
     };
     // 가운데 정렬된 글이 있는 도형은 "도형 안 글자", 나머지 사각형+글은 글상자
@@ -1204,6 +1234,7 @@ const HWPX = (() => {
     attrs.push(`data-stroke="${stroke}"`, `data-sw="${sw}"`, `data-fill="${fill}"`);
     for (const [k, v] of Object.entries(d)) attrs.push(`data-${k}="${v}"`);
     if (wrap) attrs.push(`data-wrap="${wrap}"`);
+    if (node.getAttribute('zOrder')) attrs.push(`data-z="${+node.getAttribute('zOrder')}"`);
     const hs = kind === 'textbox' ? `min-height:${Math.round(hh)}px` : `height:${Math.round(hh)}px`;
     return `<span ${attrs.join(' ')}${extra}${lookAttrs(node, wrap, dt)} style="width:${Math.round(w)}px;${hs}">${body}</span>`;
   }
@@ -1263,7 +1294,7 @@ const HWPX = (() => {
     let vshift = 0;
     if (!asChar && !tw2.wrap && pos && (pos.getAttribute('vertRelTo') || 'PARA') === 'PARA') vshift = Math.max(0, Math.round(U.hwp2px(sdim(pos.getAttribute('vertOffset')))));
     const cls = !tw2.wrap && hAlign === 'CENTER' ? ' class="tbl-center"' : !tw2.wrap && hAlign === 'RIGHT' ? ' class="tbl-right"' : '';
-    let html = `<table${cls}${tw2.wrap ? ` data-wrap="${tw2.wrap}"` : ''}${tw2.extra}${lookAttrs(tbl, tw2.wrap, null, true)} ${shift ? ` data-shift="${shift}"` : ''}${vshift ? ` data-vshift="${vshift}"` : ''}${/^(TABLE|NONE)$/.test(tbl.getAttribute('pageBreak') || '') ? ` data-pb="${tbl.getAttribute('pageBreak')}"` : ''} style="width:${Math.round(widths.reduce((a, b) => a + b, 0))}px${shift ? `;margin-left:${shift}px` : ''}"><colgroup>${widths.map((w) => `<col style="width:${Math.round(w * 10) / 10}px">`).join('')}</colgroup><tbody>`;
+    let html = `<table${cls}${tw2.wrap ? ` data-wrap="${tw2.wrap}"` : ''}${tw2.extra}${tbl.getAttribute('zOrder') ? ` data-z="${+tbl.getAttribute('zOrder')}"` : ''}${lookAttrs(tbl, tw2.wrap, null, true)} ${shift ? ` data-shift="${shift}"` : ''}${vshift ? ` data-vshift="${vshift}"` : ''}${/^(TABLE|NONE)$/.test(tbl.getAttribute('pageBreak') || '') ? ` data-pb="${tbl.getAttribute('pageBreak')}"` : ''} style="width:${Math.round(widths.reduce((a, b) => a + b, 0))}px${shift ? `;margin-left:${shift}px` : ''}"><colgroup>${widths.map((w) => `<col style="width:${Math.round(w * 10) / 10}px">`).join('')}</colgroup><tbody>`;
     for (let r = 0; r < nrows; r++) {
       html += `<tr${heights[r] ? ` style="height:${Math.round(heights[r])}px"` : ''}>`;
       for (const c of cells.filter((x) => x.r === r).sort((a, b) => a.c - b.c)) {

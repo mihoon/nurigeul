@@ -41,7 +41,9 @@ const Look = {
       el.style.marginBottom = om ? U.mm2px(om[2]) + 'px' : '';
       // 불러온 문서에서 가로 위치를 옮긴 표
       if (+d.shift > 0 && !el.classList.contains('tbl-center') && !el.classList.contains('tbl-right')) el.style.marginLeft = d.shift + 'px';
-    } else el.style.margin = om ? this.pxQuad(om) : '';
+    } else if (om || !d.vdrop) el.style.margin = om ? this.pxQuad(om) : '';
+    // 문단 위에서 떨어진 어울림 그림: 위 여백에 떨어진 거리를 더함
+    if (+d.vdrop > 0 && el.tagName === 'IMG') el.style.marginTop = (om ? U.mm2px(om[0]) : 0) + +d.vdrop + 'px';
     const im = this.quad(d.im);
     if (d.kind === 'textbox') el.style.padding = im ? this.pxQuad(im) : '';
     const st = el.querySelector && el.querySelector(':scope > .sh-text');

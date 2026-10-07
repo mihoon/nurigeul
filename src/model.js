@@ -195,8 +195,16 @@ const Model = {
     if (node.classList.contains('fignum')) { out.push({ ...this.charStyle(node), autoNum: 'PICTURE' }); return; }
     if (tag === 'IMG') { out.push({ img: this.imgModel(node) }); return; }
     if (node.classList.contains('pnnew')) { out.push({ newNum: +node.dataset.start || 1 }); return; }
+    if (tag === 'RUBY') {
+      // 덧말 (본말 + 위/아래 작은 글자)
+      const rt = node.querySelector('rt');
+      let main = '';
+      for (const c of node.childNodes) if (c.nodeName !== 'RT' && c.nodeName !== 'RP') main += c.textContent;
+      out.push({ ...this.charStyle(node), dutmal: { main: main.replace(/\u200b/g, ''), sub: rt ? rt.textContent.replace(/\u200b/g, '') : '', pos: node.dataset.pos || 'TOP', sz: +node.dataset.sz || 50, align: node.dataset.align || 'CENTER' } });
+      return;
+    }
     if (node.classList.contains('pnhide')) { out.push({ pageHide: node.dataset.hide || 'p' }); return; }
-    if (node.classList.contains('nobj')) { out.push({ shape: Shapes.toModel(node) }); return; }
+    if (node.classList.contains('nobj')) { const sh = Shapes.toModel(node); if (sh && node.dataset.z) sh.z = +node.dataset.z; out.push({ shape: sh }); return; }
     if (node.classList.contains('mm-field')) {
       // 필드 표시용 색/배경은 저장하지 않음 (사용자가 직접 준 색만 유지)
       const st = this.charStyle(node);
@@ -216,6 +224,8 @@ const Model = {
     const w = parseFloat(node.style.width) || rect.width / z || node.naturalWidth;
     const hh = parseFloat(node.style.height) || rect.height / z || node.naturalHeight;
     const im = { url: node.src, w, h: hh, wrap: node.dataset.wrap || 'inline', name: node.dataset.name || '', ...Look.model(node) };
+    if (node.dataset.z) im.z = +node.dataset.z;
+    if (node.dataset.vdrop && (im.wrap === 'left' || im.wrap === 'right')) im.vdrop = +node.dataset.vdrop;
     if (im.wrap === 'front' || im.wrap === 'behind') { im.x = parseFloat(node.style.left) || 0; im.y = parseFloat(node.style.top) || 0; }
     return im;
   },
@@ -254,7 +264,7 @@ const Model = {
       };
     });
     const wrap = table.dataset.wrap || 'inline';
-    const out = { t: 'table', nr: g.nr, nc: g.nc, widths: g.widths, heights, align, cells, wrap, shift: align === 'left' ? +table.dataset.shift || 0 : 0, vshift: +table.dataset.vshift || 0, samepara: !!table.dataset.samepara, pb: table.dataset.pb || '', ...Look.model(table) };
+    const out = { t: 'table', nr: g.nr, nc: g.nc, widths: g.widths, heights, align, cells, wrap, shift: align === 'left' ? +table.dataset.shift || 0 : 0, vshift: +table.dataset.vshift || 0, samepara: !!table.dataset.samepara, pb: table.dataset.pb || '', ...Look.model(table), ...(table.dataset.z ? { z: +table.dataset.z } : {}) };
     if (wrap === 'front' || wrap === 'behind') { out.x = parseFloat(table.style.left) || 0; out.y = parseFloat(table.style.top) || 0; }
     return out;
   },

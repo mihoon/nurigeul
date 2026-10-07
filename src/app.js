@@ -583,6 +583,21 @@ const App = {
       const ti = parseFloat(cs.textIndent) || 0, ml = parseFloat(cs.marginLeft) || 0;
       if (ti < 0 && ml + ti < -0.5) b.style.marginLeft = Math.round(U.px2pt(-ti) * 10) / 10 + 'pt';
     }
+    // 겹친 개체의 앞뒤 순서: 한글 zOrder가 큰 것이 위 (글 앞: 3 위로, 글 뒤: -1 아래로)
+    for (const o of Sel.editor.querySelectorAll('[data-z]')) {
+      const w = o.dataset.wrap, z = Math.min(900, +o.dataset.z || 0);
+      const v = w === 'front' ? String(3 + z) : w === 'behind' ? String(-1000 + z) : '';
+      if (o.style.zIndex !== v) o.style.zIndex = v;
+    }
+    // 덧말 줄 높이: 한글은 (본말 + 덧말) 높이에 줄 간격을 곱함
+    for (const rb of Sel.editor.querySelectorAll('ruby.dutmal')) {
+      const blk = rb.closest('p, li, h1, h2, h3, h4, h5, h6, td, div') || Sel.editor;
+      const cs = getComputedStyle(blk);
+      const r = parseFloat(cs.lineHeight) / (parseFloat(cs.fontSize) || 1);
+      const ratio = (r > 0 && isFinite(r) ? r : 1.6) * (1 + (+rb.dataset.sz || 50) / 100);
+      const v = ratio.toFixed(3);
+      if (rb.style.lineHeight !== v) rb.style.lineHeight = v;
+    }
     Ratio.render();
     LineLock.render();
     Justify.render();
