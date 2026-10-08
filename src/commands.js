@@ -355,6 +355,12 @@ const Editing = {
     const beforeR = document.createRange(); beforeR.setStartBefore(block.firstChild || block); beforeR.setEnd(r.startContainer, r.startOffset);
     const afterR = document.createRange(); afterR.setStart(r.endContainer, r.endOffset); afterR.setEndAfter(block.lastChild || block);
     const hasObj = (rg) => { const f = rg.cloneContents(); return !!f.querySelector && !!f.querySelector('img,.nobj,table'); };
+    // 빈 문단에서: 그 빈 문단째 다음 쪽으로 (한글: 엔터 뒤 Ctrl+Enter면 빈 줄이 다음 쪽 첫 줄)
+    if (r.collapsed && !txt(beforeR) && !txt(afterR) && !hasObj(beforeR) && !hasObj(afterR) && top0.previousElementSibling && !top0.previousElementSibling.classList.contains('pagebreak')) {
+      top0.before(pb);
+      Sel.caretInto(block);
+      return;
+    }
     // 문단 끝에서: 빈 문단을 만들지 않고 다음 문단을 다음 쪽으로 (한글처럼)
     if (r.collapsed && !txt(afterR) && !hasObj(afterR) && top0.nextElementSibling && !top0.nextElementSibling.classList.contains('pagebreak')) {
       const nx = top0.nextElementSibling;

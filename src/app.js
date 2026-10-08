@@ -1340,6 +1340,13 @@ App.mergeParas = function (forward) {
   if (vis(edge) !== '') return false;
   const frag = edge.cloneContents();
   if (frag.querySelector && frag.querySelector('img, .nobj, .tab, .mm-field, table')) return false;
+  // 쪽 나누기·단 나누기 바로 뒤에서 Backspace(앞에서 Delete): 나누기만 지움 — 크롬 기본은 문단을 풀어 글을 나누기 표시 안으로 옮겨 버림
+  const nb = forward ? blk.nextElementSibling : blk.previousElementSibling;
+  if (nb && (nb.classList.contains('pagebreak') || nb.classList.contains('colbreak'))) {
+    History.checkpoint();
+    nb.remove(); // 커서는 이 문단 안에 그대로 있음
+    return true;
+  }
   const A = forward ? blk : blk.previousElementSibling, B = forward ? blk.nextElementSibling : blk;
   if (!isPara(A) || !isPara(B) || A.parentNode !== B.parentNode) return false;
   const empty = (el) => !el.textContent.replace(/[\u200b]/g, '') && !el.querySelector('img, .nobj, .tab, .mm-field, table');

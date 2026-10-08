@@ -174,8 +174,18 @@ const Model = {
     const tag = node.tagName;
     if (tag === 'BR') {
       // 문단 끝의 자리표시 BR은 무시
-      if (node.nextSibling || (node.parentElement && node.parentElement.lastChild !== node)) out.push({ br: true });
-      else if (node.parentElement && node.previousSibling && !isBlock(node.parentElement)) out.push({ br: true });
+      // 문단 끝의 자리표시 BR(뒤에 아무것도 없음)은 무시 — 글자 상자(span) 안에 있어도 마찬가지
+      // (그림을 빈 줄에 넣으면 <span><img><br></span>이 되는데, 이 BR을 줄 바꿈으로 저장하면 한글에서 그림 밑에 빈 줄이 생김)
+      const blk = (node.parentElement && node.parentElement.closest('p, li, h1, h2, h3, h4, h5, h6, td, th, .tb-body, .figcap, div')) || node.parentElement;
+      if (blk) {
+        const rest = document.createRange();
+        rest.setStartAfter(node);
+        rest.setEnd(blk, blk.childNodes.length);
+        const f = rest.cloneContents();
+        const more = rest.toString().replace(/\u200b/g, '') !== '' || (f.querySelector && f.querySelector('br, img, .nobj, .tab, .mm-field, .fignum'));
+        if (!more) return;
+      }
+      out.push({ br: true });
       return;
     }
     if (node.classList.contains('figure')) {
