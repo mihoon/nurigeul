@@ -128,6 +128,11 @@ const Lists = {
   },
   // 번호/글머리표 크기·글꼴·색을 항목 첫 글자에 맞추기
   syncMarkers() {
+    // 마크다운 문서: 번호·글머리표는 기본 모양 (첫 글자 모양을 따라가면 굵게·코드 글꼴이 항목 전체에 번짐)
+    if (Sel.editor.classList.contains('md-doc')) {
+      Sel.editor.querySelectorAll('li').forEach((li) => ['fontSize', 'fontFamily', 'color', 'fontWeight'].forEach((k) => { if (li.style[k]) li.style[k] = ''; }));
+      return;
+    }
     const sel = window.getSelection();
     const keep = sel.rangeCount ? [sel.anchorNode, sel.anchorOffset, sel.focusNode, sel.focusOffset] : null;
     let moved = false;

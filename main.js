@@ -70,11 +70,13 @@ let uiLang = 'ko';
 const L = (ko, en) => (uiLang === 'en' ? en : ko);
 const FILTERS_FN = () => ({
   open: [
-    { name: L('지원하는 문서', 'Supported documents'), extensions: ['hwpx', 'hwp', 'txt', 'html', 'htm'] },
+    { name: L('지원하는 문서', 'Supported documents'), extensions: ['hwpx', 'hwp', 'md', 'markdown', 'txt', 'html', 'htm'] },
     { name: L('한글 문서 (HWPX, HWP)', 'Hangul document (HWPX, HWP)'), extensions: ['hwpx', 'hwp'] },
+    { name: L('마크다운 (MD)', 'Markdown (MD)'), extensions: ['md', 'markdown'] },
     { name: L('모든 파일', 'All files'), extensions: ['*'] },
   ],
-  hwpx: [{ name: L('한글 문서 (HWPX)', 'Hangul document (HWPX)'), extensions: ['hwpx'] }],
+  hwpx: [{ name: L('한글 문서 (HWPX)', 'Hangul document (HWPX)'), extensions: ['hwpx'] }, { name: L('마크다운 (MD)', 'Markdown (MD)'), extensions: ['md'] }],
+  md: [{ name: L('마크다운 (MD)', 'Markdown (MD)'), extensions: ['md', 'markdown'] }, { name: L('한글 문서 (HWPX)', 'Hangul document (HWPX)'), extensions: ['hwpx'] }],
   docx: [{ name: L('Word 문서', 'Word document'), extensions: ['docx'] }],
   pdf: [{ name: L('PDF 문서', 'PDF document'), extensions: ['pdf'] }],
   png: [{ name: L('PNG 그림', 'PNG image'), extensions: ['png'] }],
@@ -190,7 +192,7 @@ ipcMain.handle('settings:save', (e, data) => {
 });
 
 function fileArgs(argv) {
-  return argv.slice(1).filter((a) => !a.startsWith('-') && /\.(hwpx|hwp|txt|html?)$/i.test(a) && fs.existsSync(a));
+  return argv.slice(1).filter((a) => !a.startsWith('-') && /\.(hwpx|hwp|md|markdown|txt|html?)$/i.test(a) && fs.existsSync(a));
 }
 
 const gotLock = app.requestSingleInstanceLock();

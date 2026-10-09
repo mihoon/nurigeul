@@ -173,14 +173,23 @@ const App = {
         this.page = { ...DEFAULT_PAGE, ...(doc.page || {}) };
         this.docSettings = { header: null, footer: null, pageNum: null, ...doc.settings };
         this.setHtml(doc.html);
+      } else if (/\.(md|markdown)$/i.test(f.name)) {
+        const text = readTextAuto(f.data);
+        const r = await MD.load(text, f.path);
+        this.page = { ...DEFAULT_PAGE };
+        this.docSettings = { header: null, footer: null, pageNum: null, md: { tail: r.tailGap, eol: /\r\n/.test(text) ? '\r\n' : '\n', bom: text.charCodeAt(0) === 0xFEFF } };
+        Sel.editor.classList.add('md-doc');
+        this.setHtml(r.html);
+        MD.stamp();
       } else if (/\.html?$/i.test(f.name)) {
         this.setHtml(sanitizeHtml(readTextAuto(f.data)));
       } else {
         const text = readTextAuto(f.data);
         this.setHtml(text.replace(/\r\n?/g, '\n').split('\n').map((l) => `<p>${escHtml(l) || '<br>'}</p>`).join(''));
       }
-      this.filePath = /\.hwpx$/i.test(f.name) && !isHwp ? f.path : null;
-      this.fileName = f.name.replace(/\.[^.]+$/, '') + (/\.hwpx?$/i.test(f.name) || isHwp ? '.hwpx' : '');
+      const isMd = /\.(md|markdown)$/i.test(f.name);
+      this.filePath = (/\.hwpx$/i.test(f.name) && !isHwp) || isMd ? f.path : null;
+      this.fileName = isMd ? f.name : f.name.replace(/\.[^.]+$/, '') + (/\.hwpx?$/i.test(f.name) || isHwp ? '.hwpx' : '');
       this.dirty = false;
       this.updateTitle();
       if (isHwp) { status(`${f.name}을(를) HWPX로 바꿔 불러왔습니다. 저장하면 HWPX 파일로 저장됩니다.`); Sel.caretInto(Sel.editor.querySelector('p, td') || Sel.editor); Sel.editor.focus(); return; }
@@ -202,14 +211,37 @@ const App = {
   async save(as = false) {
     let p = this.filePath;
     if (!p || as) {
-      p = await window.native.saveDialog('hwpx', (this.fileName || `${T("문서")}${this.untitled}`).replace(/\.hwpx$/i, '') + '.hwpx');
+      const md = this.isMdDoc();
+      p = await window.native.saveDialog(md ? 'md' : 'hwpx', (this.fileName || `${T("문서")}${this.untitled}`).replace(/\.(hwpx|md|markdown)$/i, '') + (md ? '.md' : '.hwpx'));
       if (!p) return false;
     }
+    if (/\.(md|markdown)$/i.test(p)) return this.saveMd(p);
     try {
       this.prepareForOutput();
       const model = Model.fromEditor();
       const bytes = await HWPX.write(model, { title: this.baseName(p) });
       await window.native.writeFile(p, bytes);
+      this.filePath = p;
+      this.fileName = p.split(/[\\/]/).pop();
+      this.dirty = false;
+      this.updateTitle();
+      status(`저장했습니다: ${p}`);
+      return true;
+    } catch (e) {
+      console.error(e);
+      Dialog.alert('저장하지 못했습니다: ' + e.message);
+      return false;
+    }
+  },
+  isMdDoc() { return /\.(md|markdown)$/i.test(this.fileName || ''); },
+  async saveMd(p) {
+    try {
+      this.prepareForOutput();
+      let text = await MD.save(p, this.docSettings.md);
+      const o = this.docSettings.md || {};
+      if (o.eol === '\r\n') text = text.replace(/\r?\n/g, '\r\n');
+      if (o.bom) text = '\uFEFF' + text;
+      await window.native.writeFile(p, new TextEncoder().encode(text));
       this.filePath = p;
       this.fileName = p.split(/[\\/]/).pop();
       this.dirty = false;
@@ -345,6 +377,7 @@ const App = {
   updateTitle() {
     const t = T(`${this.displayName()}${this.dirty ? ' *' : ''} - 누리글`);
     document.title = t;
+    if (Sel.editor) Sel.editor.classList.toggle('md-doc', this.isMdDoc());
     if (window.native) window.native.setTitle(t);
     Tabs.render();
   },
@@ -1217,6 +1250,12 @@ App.bindEvents = function () {
       }
     }
     if (t === 'insertParagraph' && !MultiSel.active && Lists.enterOnEmpty()) { e.preventDefault(); return; }
+    // md 코드 블록·머리 정보 안의 Enter는 줄바꿈 (블록이 나뉘지 않게)
+    if (t === 'insertParagraph' && !MultiSel.active && App.isMdDoc()) {
+      const r0 = Sel.range();
+      const b0 = r0 && blockOf(r0.startContainer);
+      if (b0 && /^(code|front)$/.test(b0.dataset.mt || '')) { e.preventDefault(); History.checkpoint(); document.execCommand('insertLineBreak'); App.changed(); return; }
+    }
     // 블록을 잡고 괄호·따옴표를 누르면 지우지 않고 양쪽을 감쌈
     if (t === 'insertText' && !e.isComposing && e.data && App.WRAP_PAIRS[e.data] && !MultiSel.active && !ColBlock.active && App.wrapSelection(e.data)) {
       e.preventDefault();
@@ -1254,7 +1293,7 @@ App.bindEvents = function () {
   }, true);
   ed.addEventListener('input', (e) => {
     if (MultiSel.busy) return;
-    if (e.inputType === 'insertParagraph') App.carryStyle();
+    if (e.inputType === 'insertParagraph') { if (App.isMdDoc()) MD.afterEnter(); App.carryStyle(); }
     TabStops.onInput(e);
     if (MultiSel.active) MultiSel.draw();
     if (!ed.firstElementChild || ed.childNodes[0].nodeType === 3) Para.ensure();
@@ -1361,7 +1400,7 @@ App.bindEvents = function () {
   document.addEventListener('dragover', (e) => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); });
   document.addEventListener('drop', (e) => {
     if (e.defaultPrevented) return;
-    const files = Array.from(e.dataTransfer.files || []).filter((f) => /\.(hwpx|hwp|txt|html?)$/i.test(f.name));
+    const files = Array.from(e.dataTransfer.files || []).filter((f) => /\.(hwpx|hwp|md|markdown|txt|html?)$/i.test(f.name));
     if (!files.length) return;
     e.preventDefault();
     files.forEach((f) => App.openPath(window.native.pathForFile(f)));
@@ -1506,6 +1545,8 @@ App.onKeyDown = function (e) {
     const nav = { ArrowLeft: ['backward', 'character'], ArrowRight: ['forward', 'character'], ArrowUp: ['backward', 'line'], ArrowDown: ['forward', 'line'], Home: ['backward', 'lineboundary'], End: ['forward', 'lineboundary'] }[e.code];
     if (nav && e.isComposing) { MultiSel.navPending = [nav[0], e.ctrlKey && nav[1] === 'character' ? 'word' : nav[1], e.shiftKey]; return; }
   }
+  // ----- 표 밖 왼쪽 커서 (Shift+Esc) -----
+  if (Table.outside && Table.outsideKey(e)) return;
   const k = keyString(e);
   if (!k) return;
   const stop = () => { e.preventDefault(); e.stopPropagation(); };
@@ -1548,8 +1589,9 @@ App.onKeyDown = function (e) {
       return;
     }
   }
+  if ((k === 'Left' || k === 'Right') && !MultiSel.active && !Table.block.active() && Table.arrowToTable(k === 'Left' ? -1 : 1)) { stop(); return; }
   // ----- 표 밖으로 나가기 (한글: Shift+Esc) -----
-  if (k === 'Shift+Escape' && (Sel.closest('td, th') || Table.block.active()) && !Sel.closest('.tb-body')) { stop(); Table.exitAfter(); return; }
+  if (k === 'Shift+Escape' && (Sel.closest('td, th') || Table.block.active()) && !Sel.closest('.tb-body')) { stop(); Table.exitBefore(); return; }
   // ----- 고른 표 (바깥 테두리를 눌러 고름) -----
   if (Table.selected) {
     const t = Table.selected;

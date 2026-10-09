@@ -399,7 +399,7 @@ const Img = {
       const files = Array.from(e.dataTransfer.files || []);
       if (!files.length) return;
       e.preventDefault();
-      const docs = files.filter((f) => /\.(hwpx|hwp|txt|html?)$/i.test(f.name));
+      const docs = files.filter((f) => /\.(hwpx|hwp|md|markdown|txt|html?)$/i.test(f.name));
       if (docs.length) { for (const f of docs) App.openPath(window.native.pathForFile(f)); return; }
       const imgs = files.filter((f) => f.type.startsWith('image/'));
       if (!imgs.length) return;

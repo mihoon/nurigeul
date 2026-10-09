@@ -436,3 +436,23 @@ body.printing ::selection { background: transparent !important; }
 #editor ruby.dutmal[data-pos="BOTTOM"] { ruby-position: under; }
 #editor ruby.dutmal[data-align="LEFT"] { ruby-align: start; }
 #editor ruby.dutmal > rt { font-size: 50%; line-height: 1; text-indent: 0; }
+/* 마크다운 문서 */
+#editor.md-doc > p, #editor.md-doc li > p { text-align: left; }
+#editor.md-doc [data-style^="개요"] { margin-left: 0; font-weight: bold; margin-top: 8pt; margin-bottom: 4pt; }
+#editor.md-doc [data-style="개요 1"] { font-size: 20pt; border-bottom: 1px solid #d8dee4; padding-bottom: 2pt; }
+#editor.md-doc [data-style="개요 2"] { font-size: 16pt; border-bottom: 1px solid #d8dee4; padding-bottom: 2pt; }
+#editor.md-doc [data-style="개요 3"] { font-size: 13pt; }
+#editor.md-doc [data-style="개요 4"] { font-size: 11pt; }
+#editor.md-doc [data-style="개요 5"] { font-size: 10pt; }
+#editor.md-doc [data-style="개요 6"] { font-size: 10pt; color: #59636e; }
+#editor p[data-mt="code"], #editor p[data-mt="front"] { font-family: Consolas, 'D2Coding', '나눔고딕코딩', monospace; font-size: 9pt; background: #f3f4f6; padding: 6pt 8pt; border-radius: 4px; white-space: pre-wrap; text-align: left; line-height: 1.45; }
+#editor p[data-mt="front"] { color: #59636e; border: 1px dashed #c8ccd1; }
+#editor p[data-mt="quote"] { border-left: 3px solid #d0d7de; padding-left: 10pt; color: #59636e; }
+#editor p[data-mt="hr"] { border-bottom: 2px solid #d8dee4; line-height: 6pt; margin-bottom: 6pt; }
+#editor .md-code { font-family: Consolas, 'D2Coding', monospace; background: #eff1f3; border-radius: 3px; padding: 0 2px; font-size: 92%; }
+#editor .md-task { cursor: pointer; user-select: none; }
+#editor table.md-table td { border: 1px solid #b8bec6; padding: 2px 6px; }
+#editor table.md-table td[data-mdth] { background: #f3f4f6; font-weight: bold; }
+#editor.md-doc > p:not([data-mt="code"]):not([data-mt="front"]), #editor.md-doc > ul, #editor.md-doc > ol, #editor.md-doc > table { margin-bottom: 5pt; }
+#tbl-out-caret { position: absolute; width: 1.5px; background: #000; z-index: 6; pointer-events: none; animation: tblcaret 1s steps(1) infinite; }
+@keyframes tblcaret { 50% { opacity: 0; } }

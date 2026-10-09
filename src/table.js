@@ -635,6 +635,165 @@ const Table = {
     return true;
   },
 
+  // ---------- 표 밖 왼쪽 (한글 Shift+Esc: 표 앞에 커서) ----------
+  // 누리글의 표는 문단 밖의 블록이므로 '표 앞 자리'를 가상 커서로 보여 주고,
+  // 글자를 치면 표 앞에 새 문단을 만들어 거기에 씀. Enter는 표 위에 빈 줄을 넣음.
+  outside: null,
+  outsideSide: 'before',
+  exitBefore() {
+    const td = Sel.closest('td, th') || (this.block.active() ? this.block.cells()[0] : null);
+    if (!td) return false;
+    const t = td.closest('table');
+    this.block.clear();
+    this.outsideStart(t, 'before');
+    return true;
+  },
+  // side: 'before' 표 앞(왼쪽), 'after' 표 뒤(오른쪽)
+  outsideStart(t, side = 'before') {
+    this.outsideEnd();
+    this.outside = t;
+    this.outsideSide = side;
+    Sel.editor.focus({ preventScroll: true });
+    window.getSelection().removeAllRanges();
+    this.outsideDraw();
+    const c = $('#tbl-out-caret');
+    if (c) {
+      const r = c.getBoundingClientRect();
+      const ws = $('#workspace');
+      const wr = ws.getBoundingClientRect();
+      if (r.top < wr.top + 20 || r.bottom > wr.bottom - 20) ws.scrollTop += r.top - wr.top - wr.height / 3;
+    }
+    status(side === 'before'
+      ? '표 앞: 글자를 치면 표 위에 새 문단이 생기고, Enter는 표 위에 빈 줄을 넣습니다. End: 표 뒤로, →/↓: 표 안으로.'
+      : '표 뒤: 글자를 치거나 Enter를 누르면 표 아래에 새 문단이 생깁니다. Home: 표 앞으로, ←/↑: 표 안으로.');
+  },
+  outsideDraw() {
+    const old = $('#tbl-out-caret');
+    if (old) old.remove();
+    const t = this.outside;
+    if (!t || !t.isConnected) { this.outside = null; return; }
+    window.getSelection().removeAllRanges();
+    const page = $('#page').getBoundingClientRect();
+    const r = t.getBoundingClientRect();
+    const z = App.zoom;
+    const after = this.outsideSide === 'after';
+    const row = after ? t.rows[t.rows.length - 1] : t.rows[0];
+    const rr = row ? row.getBoundingClientRect() : { top: r.top, bottom: r.top + 20, height: 20 };
+    const hgt = Math.max(12 * z, Math.min(rr.height, 28 * z));
+    const top = after ? rr.bottom - hgt : rr.top;
+    const left = after ? r.right + 2 * z : r.left - 3 * z;
+    $('#page').append(h('div', { id: 'tbl-out-caret', class: 'no-print', style: { left: (left - page.left) / z + 'px', top: (top - page.top) / z + 'px', height: hgt / z + 'px' } }));
+  },
+  outsideEnd() {
+    this.outside = null;
+    const old = $('#tbl-out-caret');
+    if (old) old.remove();
+  },
+  // 표 앞/뒤에 새 문단을 만들어 커서를 넣음
+  outsideNewPara() {
+    const t = this.outside;
+    const p = h('p', {}, h('br'));
+    if (this.outsideSide === 'after') t.after(p); else t.before(p);
+    this.outsideEnd();
+    Sel.caretInto(p);
+    return p;
+  },
+  outsideKey(e) {
+    const t = this.outside;
+    if (!t || !t.isConnected) { this.outsideEnd(); return false; }
+    const after = this.outsideSide === 'after';
+    const k = keyString(e);
+    const stop = () => { e.preventDefault(); e.stopPropagation(); };
+    const skip = (p, dir) => { while (p && (p.classList.contains('pagebreak') || p.classList.contains('colbreak'))) p = p[dir]; return p; };
+    const prevBlock = () => skip(t.previousElementSibling, 'previousElementSibling');
+    const nextBlock = () => skip(t.nextElementSibling, 'nextElementSibling');
+    const isEmptyP = (p) => p && p.tagName === 'P' && !p.textContent.replace(/[\s​]/g, '') && !p.querySelector('img, .nobj, table');
+    const caretAt = (blk, end) => {
+      this.outsideEnd();
+      if (blk.tagName === 'TABLE') { this.outsideStart(blk, end ? 'after' : 'before'); return; }
+      let x = blk;
+      if (/^(UL|OL)$/.test(blk.tagName)) { const lis = blk.querySelectorAll('li'); x = (end ? lis[lis.length - 1] : lis[0]) || blk; }
+      const r = document.createRange(); r.selectNodeContents(x); r.collapse(!end); Sel.set(r);
+    };
+    const firstCell = () => { const td = t.rows[0] && t.rows[0].cells[0]; this.outsideEnd(); if (td) Sel.caretInto(td.querySelector('p') || td); };
+    const lastCell = () => {
+      const row = t.rows[t.rows.length - 1];
+      const td = row && row.cells[row.cells.length - 1];
+      this.outsideEnd();
+      if (td) { const r = document.createRange(); r.selectNodeContents(td.querySelector('p:last-of-type') || td); r.collapse(false); Sel.set(r); }
+    };
+    // 글자 입력(한글 조합 포함)·붙여넣기: 새 문단을 만들고 그곳에서 계속
+    if (e.isComposing || e.keyCode === 229 || e.key === 'Process' || (e.key && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) || k === 'Ctrl+V' || k === 'Shift+Insert') {
+      History.checkpoint();
+      this.outsideNewPara();
+      App.changed();
+      return false; // 기본 동작(글자 넣기)은 새 문단에서
+    }
+    if (!k || /^(Ctrl|Alt|Shift|Meta)$/.test(k)) return true;
+    if (k === 'Escape' || k === 'Shift+Escape') { stop(); return true; }
+    if (k === 'Home' || k === 'End') {
+      stop();
+      const side = k === 'End' ? 'after' : 'before';
+      if (side !== this.outsideSide) this.outsideStart(t, side);
+      return true;
+    }
+    if (k === 'Enter') {
+      stop();
+      History.checkpoint();
+      if (after) { this.outsideNewPara(); App.changed(); return true; }
+      t.before(h('p', {}, h('br')));
+      App.changed();
+      App.layout && App.layout();
+      this.outsideDraw();
+      return true;
+    }
+    if (!after) {
+      if (k === 'Right' || k === 'Down' || k === 'Tab') { stop(); firstCell(); return true; }
+      if (k === 'Left' || k === 'Up') { stop(); const p = prevBlock(); if (p) caretAt(p, true); return true; }
+      if (k === 'Backspace') {
+        stop();
+        const p = prevBlock();
+        if (!p) return true;
+        if (isEmptyP(p)) { History.checkpoint(); p.remove(); App.changed(); App.layout && App.layout(); this.outsideDraw(); return true; }
+        caretAt(p, true);
+        return true;
+      }
+      if (k === 'Delete') { stop(); this.outsideEnd(); this.select(t); return true; }
+    } else {
+      if (k === 'Left' || k === 'Up' || k === 'Shift+Tab') { stop(); lastCell(); return true; }
+      if (k === 'Right' || k === 'Down') { stop(); const p = nextBlock(); if (p) caretAt(p, false); return true; }
+      if (k === 'Delete') {
+        stop();
+        const p = nextBlock();
+        if (!p) return true;
+        if (isEmptyP(p) && p.nextElementSibling) { History.checkpoint(); p.remove(); App.changed(); App.layout && App.layout(); this.outsideDraw(); return true; }
+        caretAt(p, false);
+        return true;
+      }
+      if (k === 'Backspace') { stop(); this.outsideEnd(); this.select(t); return true; }
+    }
+    // 그 밖의 단축키(저장 등)는 그대로 처리. 편집 단축키는 커서만 표 안으로.
+    if (/^(Ctrl\+(X|C|A|Z|Y|B|I|U)|Alt\+)/.test(k)) { if (after) lastCell(); else firstCell(); return false; }
+    return false;
+  },
+  // 표 바로 뒤 문단 맨 앞에서 ← → 표 뒤, 표 바로 앞 문단 끝에서 → → 표 앞
+  arrowToTable(dir) {
+    const s = window.getSelection();
+    if (!s.rangeCount || !s.isCollapsed) return false;
+    const r = s.getRangeAt(0);
+    const blk = blockOf(r.startContainer);
+    if (!blk || blk === Sel.editor || blk.closest('td, th, li') || !blk.parentElement) return false;
+    const sib = dir < 0 ? blk.previousElementSibling : blk.nextElementSibling;
+    if (!sib || sib.tagName !== 'TABLE') return false;
+    const q = document.createRange();
+    q.selectNodeContents(blk);
+    if (dir < 0) q.setEnd(r.startContainer, r.startOffset); else q.setStart(r.startContainer, r.startOffset);
+    const frag = q.cloneContents();
+    if (frag.textContent.replace(/[​]/g, '') || frag.querySelector && frag.querySelector('img, .nobj, table')) return false;
+    this.outsideStart(sib, dir < 0 ? 'after' : 'before');
+    return true;
+  },
+
   // ---------- 표 고르기·옮기기 (표 바깥 테두리 바로 바깥을 누름) ----------
   selected: null,
   select(t) {
@@ -1112,12 +1271,13 @@ function colWidths(table, nc) {
   if (w.length !== nc || w.some((x) => !x)) {
     // 측정해서 채우기
     const first = rowsOf(table)[0];
-    const tw = parseFloat(table.style.width) || table.getBoundingClientRect().width / (window.App ? App.zoom : 1) || 600;
+    const Z = typeof App !== 'undefined' && App.zoom ? App.zoom : 1;
+    const tw = (/px$/.test(table.style.width) && parseFloat(table.style.width)) || table.getBoundingClientRect().width / Z || 600;
     const measured = [];
     if (first && nc) {
       let c = 0;
       for (const td of first.cells) {
-        const cw = td.getBoundingClientRect().width / (window.App ? App.zoom : 1);
+        const cw = td.getBoundingClientRect().width / Z;
         for (let k = 0; k < td.colSpan; k++) measured[c++] = cw / td.colSpan;
       }
     }
@@ -1188,3 +1348,5 @@ function insertBlockAtCaret(node) {
   }
   if (!node.nextElementSibling || node.nextElementSibling.tagName === 'TABLE') node.after(h('p', {}, h('br')));
 }
+// 표 앞 가상 커서: 마우스를 누르거나 실제 커서가 생기면 끝냄
+document.addEventListener('mousedown', () => { if (Table.outside) Table.outsideEnd(); }, true);
