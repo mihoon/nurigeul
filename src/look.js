@@ -38,7 +38,7 @@ const Look = {
       // 글자처럼 놓인 표는 위·아래 여백만 (가운데/오른쪽 정렬을 지키려고)
       el.style.margin = '';
       el.style.marginTop = om || +d.vshift ? (om ? U.mm2px(om[0]) : 0) + (+d.vshift || 0) + 'px' : '';
-      el.style.marginBottom = om ? U.mm2px(om[2]) + 'px' : '';
+      el.style.marginBottom = om || +d.lsp ? (om ? U.mm2px(om[2]) : 0) + (+d.lsp || 0) + 'px' : '';
       // 불러온 문서에서 가로 위치를 옮긴 표
       if (+d.shift > 0 && !el.classList.contains('tbl-center') && !el.classList.contains('tbl-right')) el.style.marginLeft = d.shift + 'px';
     } else if (om || !d.vdrop) el.style.margin = om ? this.pxQuad(om) : '';

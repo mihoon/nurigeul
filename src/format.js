@@ -435,7 +435,41 @@ const Para = {
 };
 
 function firstFamily(ff) {
-  return (ff || '').split(',')[0].trim().replace(/^["']|["']$/g, '');
+  const list = (ff || '').split(',').map((x) => x.trim().replace(/^["']|["']$/g, ''));
+  return list.find((x) => x !== NBSP_FAM && x !== PUA_FAM) || '';
+}
+// 일부 한컴 글꼴(HY견고딕 등)은 줄바꿈 없는 빈칸(U+00A0)을 네모(□)로 그림 → 그런 글꼴은 그 글자만 다른 글꼴로
+const NBSP_FAM = '누리글빈칸';
+// 한컴 전용 문자(사용자 정의 영역 U+F0000~, 네모 숫자 등): 함초롬 글꼴에만 있으므로 어느 글꼴에서든 함초롬으로
+const PUA_FAM = '누리글한컴문자';
+(function () {
+  const st = document.createElement('style');
+  st.id = 'pua-fix';
+  st.textContent = `@font-face{font-family:"${PUA_FAM}";src:local("함초롬돋움"),local("HCR Dotum"),local("HCRDotum"),local("함초롬바탕"),local("HCR Batang"),local("HCRBatang");unicode-range:U+F0000-FFFFD;}`
+    + `@font-face{font-family:"${PUA_FAM}";font-weight:bold;src:local("함초롬돋움 Bold"),local("HCR Dotum Bold"),local("HCRDotum-Bold"),local("함초롬돋움"),local("HCR Dotum");unicode-range:U+F0000-FFFFD;}`;
+  document.head.append(st);
+})();
+const nbspBad = new Map();
+function nbspBroken(name) {
+  if (nbspBad.has(name)) return nbspBad.get(name);
+  let bad = false;
+  try {
+    const cv = nbspBroken.cv || (nbspBroken.cv = document.createElement('canvas').getContext('2d'));
+    cv.font = `40px "${name.replace(/"/g, '')}", monospace`;
+    const a = cv.measureText('\u00a0').width, b = cv.measureText(' ').width;
+    cv.font = '40px monospace';
+    const fa = cv.measureText('\u00a0').width;
+    // 그 글꼴이 실제로 있고(빈칸 폭이 기본 글꼴과 다르거나), U+00A0 폭이 보통 빈칸과 다르면 고장
+    bad = Math.abs(a - b) > 0.5 && Math.abs(a - fa) > 0.01;
+  } catch { /* 무시 */ }
+  nbspBad.set(name, bad);
+  if (bad && !document.getElementById('nbsp-fix')) {
+    const st = document.createElement('style');
+    st.id = 'nbsp-fix';
+    st.textContent = `@font-face{font-family:"${NBSP_FAM}";src:local("Malgun Gothic"),local("맑은 고딕"),local("Arial"),local("DejaVu Sans");unicode-range:U+A0;}`;
+    document.head.append(st);
+  }
+  return bad;
 }
 // "나눔고딕 ExtraBold"처럼 굵기가 붙은 글꼴 이름: Windows의 Chrome은 이런 이름을 글꼴 묶음(나눔고딕) 안의 한 굵기로만 알아서
 // 이름으로 찾지 못하고 다른 글꼴로 바뀌어 글자 폭이 달라짐 → @font-face local()로 그 글꼴 파일을 직접 가리킴
@@ -465,7 +499,7 @@ function fontStack(name) {
   const m = /^(.+?)\s*(Thin|Hairline|ExtraLight|UltraLight|Light|Book|Medium|SemiBold|DemiBold|ExtraBold|UltraBold|Bold|Heavy|Black)$/i.exec(name.trim());
   // 굵기 붙은 이름을 못 찾으면 같은 묶음 이름(나눔고딕)으로라도 — 폭이 가장 비슷함
   const fam = m ? `, "${m[1].trim()}"${fontEn(m[1].trim()) ? `, "${fontEn(m[1].trim())}"` : ''}` : '';
-  return `"${name}"${fam}, ${generic}`;
+  return `"${PUA_FAM}", ${nbspBroken(name) ? `"${NBSP_FAM}", ` : ''}"${name}"${fam}, ${generic}`;
 }
 function decoOf(el) {
   const res = { underline: false, strike: false, sup: false, sub: false };

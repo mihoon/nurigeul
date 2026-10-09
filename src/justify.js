@@ -127,8 +127,21 @@ const LineLock = {
           w.className = 'hlb';
           after.parentNode.insertBefore(w, after);
         }
+        if (!offs.length && p.querySelector('span.tsp')) continue; // 끝 빈칸이 긴 한 줄 문단은 그대로
+        p.style.removeProperty('--hlws');
         p.classList.add('hl-lock');
-        if (p.scrollWidth > p.clientWidth + 1) p.classList.remove('hl-lock'); // 우리 글꼴이 더 넓어 넘치면 보통 줄바꿈
+        if (p.scrollWidth > p.clientWidth + 1) {
+          // 우리 글꼴이 조금 더 넓어 넘치면: 한글처럼 빈칸을 줄여 맞춤 (빈칸 폭의 절반까지)
+          const over = p.scrollWidth - p.clientWidth + 1;
+          const spaces = (p.textContent.match(/[ \u00a0]/g) || []).length;
+          const fs = parseFloat(getComputedStyle(p).fontSize) || 13;
+          const lines = offs.length + 1;
+          const per = spaces ? (over * lines) / spaces : Infinity;
+          if (per <= fs * 0.2) {
+            p.style.setProperty('--hlws', (-per).toFixed(2) + 'px');
+            if (p.scrollWidth > p.clientWidth + 1) { p.classList.remove('hl-lock'); p.style.removeProperty('--hlws'); }
+          } else p.classList.remove('hl-lock'); // 많이 넘치면 보통 줄바꿈
+        }
       }
       return true;
     });

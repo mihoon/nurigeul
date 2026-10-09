@@ -1,7 +1,7 @@
 {
   "name": "nurigeul",
   "productName": "누리글",
-  "version": "1.5.66",
+  "version": "1.5.70",
   "description": "아래아한글 단축키를 따르는 가벼운 문서 편집기 (HWPX)",
   "main": "main.js",
   "author": "mihoon",

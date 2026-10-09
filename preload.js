@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('native', {
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (d) => ipcRenderer.invoke('settings:save', d),
   setLang: (l) => ipcRenderer.invoke('lang:set', l),
+  appFonts: () => ipcRenderer.invoke('fonts:app'),
   pathForFile: (file) => { try { return webUtils.getPathForFile(file); } catch { return null; } },
   on: (ch, fn) => {
     const allowed = ['app:close-request', 'macros:changed'];

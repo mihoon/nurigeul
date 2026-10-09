@@ -182,6 +182,89 @@ ipcMain.handle('macros:save', (e, data) => {
   for (const w of windows) if (w.webContents !== e.sender) w.webContents.send('macros:changed', data);
   return true;
 });
+// ----- 한글(한컴오피스)이 따로 가지고 있는 글꼴 (HY헤드라인M, 한컴 소망 등) -----
+// 한글은 이 글꼴들을 Windows에 설치하지 않고 자기 폴더에서만 쓰므로, 누리글이 같은 파일을 찾아 @font-face로 씀
+function fontNames(file) {
+  const fd = fs.openSync(file, 'r');
+  const rd = (pos, len) => { const b = Buffer.alloc(len); const n = fs.readSync(fd, b, 0, len, pos); return b.subarray(0, n); };
+  const out = [];
+  try {
+    const head = rd(0, 12);
+    let offsets = [0];
+    if (head.toString('latin1', 0, 4) === 'ttcf') {
+      const n = Math.min(head.readUInt32BE(8), 16);
+      const t = rd(12, 4 * n);
+      offsets = Array.from({ length: n }, (_, i) => t.readUInt32BE(i * 4));
+    }
+    for (const off of offsets) {
+      const h = rd(off, 12);
+      const nt = h.readUInt16BE(4);
+      const dir = rd(off + 12, nt * 16);
+      let nameOff = -1, nameLen = 0, os2 = -1;
+      for (let i = 0; i < nt; i++) {
+        const tag = dir.toString('latin1', i * 16, i * 16 + 4);
+        if (tag === 'name') { nameOff = dir.readUInt32BE(i * 16 + 8); nameLen = dir.readUInt32BE(i * 16 + 12); }
+        if (tag === 'OS/2') os2 = dir.readUInt32BE(i * 16 + 8);
+      }
+      if (nameOff < 0) continue;
+      const nb = rd(nameOff, Math.min(nameLen, 65536));
+      const cnt = nb.readUInt16BE(2), strOff = nb.readUInt16BE(4);
+      const fam = new Set(); let sub = '';
+      for (let i = 0; i < cnt; i++) {
+        const r = 6 + i * 12;
+        if (r + 12 > nb.length) break;
+        const pid = nb.readUInt16BE(r), nid = nb.readUInt16BE(r + 6), len = nb.readUInt16BE(r + 8), o = nb.readUInt16BE(r + 10);
+        if (pid !== 3 || ![1, 2, 4, 16].includes(nid)) continue;
+        const raw = nb.subarray(strOff + o, strOff + o + len);
+        let str = '';
+        for (let k = 0; k + 1 < raw.length; k += 2) str += String.fromCharCode(raw.readUInt16BE(k));
+        str = str.replace(/\0/g, '').trim();
+        if (!str) continue;
+        if (nid === 2 && !sub) sub = str;
+        else if (nid !== 2) fam.add(str);
+      }
+      let weight = 400;
+      if (os2 >= 0) { const w = rd(os2 + 4, 2); if (w.length === 2) weight = w.readUInt16BE(0) || 400; }
+      if (fam.size) out.push({ names: [...fam], weight, italic: /italic|oblique/i.test(sub) });
+    }
+  } catch { /* 망가진 글꼴 */ }
+  fs.closeSync(fd);
+  return out;
+}
+let appFontsCache = null;
+ipcMain.handle('fonts:app', () => {
+  if (appFontsCache) return appFontsCache;
+  const list = [];
+  if (process.platform !== 'win32') return (appFontsCache = list);
+  const roots = [process.env['ProgramFiles(x86)'], process.env.ProgramFiles, 'C:\\Program Files (x86)', 'C:\\Program Files'].filter(Boolean);
+  const dirs = new Set();
+  const ls = (d) => { try { return fs.readdirSync(d, { withFileTypes: true }); } catch { return []; } };
+  for (const r of new Set(roots)) {
+    for (const vendor of ['HNC', 'Hnc', 'Hancom']) {
+      const v = path.join(r, vendor);
+      for (const prod of ls(v)) {
+        if (!prod.isDirectory()) continue;
+        const pp = path.join(v, prod.name);
+        // HNC\Office 2024\HOffice130\Shared\TTF, HNC\Office NEO\HOffice100\Shared\TTF, HNC\HOffice\Shared\TTF ...
+        const cands = [path.join(pp, 'Shared'), ...ls(pp).filter((x) => x.isDirectory()).map((x) => path.join(pp, x.name, 'Shared'))];
+        for (const sh of cands) for (const sub of ['TTF', 'Fonts', 'TTF\\Hnc']) { const d = path.join(sh, sub); if (fs.existsSync(d)) dirs.add(d); }
+      }
+    }
+  }
+  const seen = new Set();
+  const walk = (d, depth) => {
+    for (const e of ls(d)) {
+      const f = path.join(d, e.name);
+      if (e.isDirectory()) { if (depth < 2) walk(f, depth + 1); continue; }
+      if (!/\.(ttf|ttc|otf)$/i.test(e.name) || seen.has(e.name.toLowerCase())) continue;
+      seen.add(e.name.toLowerCase());
+      for (const fn of fontNames(f).slice(0, 1)) list.push({ ...fn, url: 'file:///' + f.replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/').replace(/^([A-Za-z])%3A/, '$1:') });
+    }
+  };
+  for (const d of dirs) walk(d, 0);
+  return (appFontsCache = list);
+});
+
 ipcMain.handle('settings:load', () => {
   try { return JSON.parse(fs.readFileSync(settingsPath(), 'utf8')); } catch { return {}; }
 });

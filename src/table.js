@@ -591,6 +591,13 @@ const Table = {
       if (rig && sR && sR.kind !== 'keep') for (let r = x.r; r < x.r + x.rs; r++) { const o = nb(r, x.c + x.cs); if (o && !inR(o)) set(o.el, 'Left', sR); }
     }
   },
+  // 지금 셀의 세로 정렬 (top/middle/bottom)
+  cellVAlign() {
+    const td = this.block.active() ? this.block.cells()[0] : this.currentCell();
+    if (!td) return null;
+    const v = getComputedStyle(td).verticalAlign;
+    return v === 'top' ? 'top' : v === 'bottom' ? 'bottom' : 'middle';
+  },
   applyCellProps(p) {
     const cells = this.block.active() ? this.block.cells() : [this.currentCell()].filter(Boolean);
     if (!cells.length) return;

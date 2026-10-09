@@ -269,6 +269,7 @@ const Model = {
         valign: cs.verticalAlign === 'top' ? 'top' : cs.verticalAlign === 'bottom' ? 'bottom' : 'middle',
         borders: { top: side('Top'), right: side('Right'), bottom: side('Bottom'), left: side('Left') },
         blocks: this.blocks(x.el),
+        grad: x.el.dataset.grad || null,
         diag: x.el.dataset.diag || null, dgc: x.el.dataset.dgc || '#000000', dgw: +x.el.dataset.dgw || 1,
         pad: x.el.style.padding || x.el.dataset.im ? ['Top', 'Right', 'Bottom', 'Left'].map((s) => parseFloat(cs['padding' + s]) || 0) : null,
       };

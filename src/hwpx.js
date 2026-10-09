@@ -74,7 +74,7 @@ const HWPX = (() => {
         return { t, w: s.mm ? mmToBorderMM(s.mm) : pxToBorderMM(s.width), c: (s.color || '#000000').toUpperCase() };
       };
       const b = cell ? cell.borders : null;
-      const k = b ? { l: side(b.left), r: side(b.right), t: side(b.top), b: side(b.bottom), f: cell.bg ? cell.bg.toUpperCase() : null, ...(cell.bgImg && binFor(cell.bgImg) ? { im: binFor(cell.bgImg), imm: { center: 'CENTER', tile: 'TILE' }[cell.bgMode] || 'TOTAL' } : {}), ...(cell.diag ? { dg: cell.diag, dc: (cell.dgc || '#000000').toUpperCase(), dw: pxToBorderMM(cell.dgw || 1) } : {}) }
+      const k = b ? { l: side(b.left), r: side(b.right), t: side(b.top), b: side(b.bottom), f: cell.bg ? cell.bg.toUpperCase() : null, ...(cell.grad ? { gr: cell.grad } : {}), ...(cell.bgImg && binFor(cell.bgImg) ? { im: binFor(cell.bgImg), imm: { center: 'CENTER', tile: 'TILE' }[cell.bgMode] || 'TOTAL' } : {}), ...(cell.diag ? { dg: cell.diag, dc: (cell.dgc || '#000000').toUpperCase(), dw: pxToBorderMM(cell.dgw || 1) } : {}) }
         : { l: side({ style: 'solid', width: 1 }), r: side({ style: 'solid', width: 1 }), t: side({ style: 'solid', width: 1 }), b: side({ style: 'solid', width: 1 }), f: null };
       const key = JSON.stringify(k);
       if (!borderFills.has(key)) borderFills.set(key, { id: BASE_BF + borderFills.size, k });
@@ -388,7 +388,8 @@ const HWPX = (() => {
       return `<hh:borderFill id="${id}" threeD="0" shadow="0" centerLine="NONE" breakCellSeparateLine="0"><hh:slash type="${up ? 'CENTER' : 'NONE'}" Crooked="0" isCounter="0"/><hh:backSlash type="${down ? 'CENTER' : 'NONE'}" Crooked="0" isCounter="0"/>`
         + s('leftBorder', k.l) + s('rightBorder', k.r) + s('topBorder', k.t) + s('bottomBorder', k.b)
         + (k.dg ? `<hh:diagonal type="SOLID" width="${k.dw}" color="${k.dc}"/>` : '<hh:diagonal type="SOLID" width="0.1 mm" color="#000000"/>')
-        + (k.f || k.im ? '<hc:fillBrush>' + (k.f ? `<hc:winBrush faceColor="${k.f}" hatchColor="#999999" alpha="0"/>` : '')
+        + (k.f || k.im || k.gr ? '<hc:fillBrush>' + (k.f ? `<hc:winBrush faceColor="${k.f}" hatchColor="#999999" alpha="0"/>` : '')
+          + (k.gr ? gradXml(k.gr) : '')
           + (k.im ? `<hc:imgBrush mode="${k.imm}"><hc:img binaryItemIDRef="${k.im}" bright="0" contrast="0" effect="REAL_PIC" alpha="0"/></hc:imgBrush>` : '') + '</hc:fillBrush>' : '')
         + '</hh:borderFill>';
     }).join('');
@@ -467,6 +468,22 @@ const HWPX = (() => {
   function mmToBorderMM(mm) {
     const v = BORDER_MM.reduce((a, b) => (Math.abs(b - mm) < Math.abs(a - mm) ? b : a));
     return (Number.isInteger(v) ? v.toFixed(1) : String(v)) + ' mm';
+  }
+  // 그러데이션 채우기: 'TYPE|angle|cx|cy|step|stepCenter|#c1 #c2 ...'
+  function gradCss(g) {
+    const [type, angle, cx, cy, , sc, cols] = g.split('|');
+    const cs = cols.split(' ').filter(Boolean);
+    const stops = cs.length === 2 && +sc && +sc !== 50 ? `${cs[0]}, ${cs[1]} ${Math.max(1, Math.min(99, 100 - +sc))}%` : cs.join(', ');
+    const list = cs.length === 2 && +sc && +sc !== 50 ? `${cs[0]}, ${cs[1]}` : stops;
+    if (type === 'RADIAL' || type === 'SQUARE') return `radial-gradient(${type === 'SQUARE' ? 'closest-side' : 'circle'} at ${+cx || 50}% ${+cy || 50}%, ${list})`;
+    if (type === 'CONICAL') return `conic-gradient(from ${+angle}deg at ${+cx || 50}% ${+cy || 50}%, ${list})`;
+    // 한글: 0도 = 위→아래, 90도 = 왼쪽→오른쪽
+    return `linear-gradient(${(180 - (+angle || 0) + 360) % 360}deg, ${list})`;
+  }
+  function gradXml(g) {
+    const [type, angle, cx, cy, step, sc, cols] = g.split('|');
+    return `<hc:gradation type="${type}" angle="${+angle || 0}" centerX="${+cx || 0}" centerY="${+cy || 0}" step="${+step || 50}" stepCenter="${+sc || 50}" alpha="0">`
+      + cols.split(' ').filter(Boolean).map((c) => `<hc:color value="${c}"/>`).join('') + '</hc:gradation>';
   }
   function borderMMToPx(s) {
     const mm = parseFloat(s) || 0.12;
@@ -578,6 +595,8 @@ const HWPX = (() => {
         sup: !!kid(c, 'supscript'), sub: !!kid(c, 'subscript'),
         spacing: sp ? num(sp.getAttribute('hangul')) : 0,
         ratio: (() => { const r = kid(c, 'ratio'); return r ? num(r.getAttribute('hangul'), 100) : 100; })(),
+        relSz: (() => { const r = kid(c, 'relSz'); const v = r ? num(r.getAttribute('hangul'), 100) : 100; return v >= 10 && v <= 250 ? v : 100; })(),
+        offset: (() => { const r = kid(c, 'offset'); const v = r ? num(r.getAttribute('hangul'), 0) : 0; return Math.max(-100, Math.min(100, v)); })(),
         outline: (() => { const o = kid(c, 'outline'); return !!o && o.getAttribute('type') && o.getAttribute('type') !== 'NONE'; })(),
         shadow: (() => { const o = kid(c, 'shadow'); return o && o.getAttribute('type') && o.getAttribute('type') !== 'NONE' ? o.getAttribute('color') || '#999999' : null; })(),
         bfRef: c.getAttribute('borderFillIDRef'),
@@ -612,9 +631,12 @@ const HWPX = (() => {
       const face = wb ? wb.getAttribute('faceColor') : null;
       const ib = desc(b, 'imgBrush')[0];
       const ibImg = ib && desc(ib, 'img')[0];
+      const gr = desc(b, 'gradation')[0];
+      const grad = gr ? [gr.getAttribute('type') || 'LINEAR', num(gr.getAttribute('angle')), num(gr.getAttribute('centerX')), num(gr.getAttribute('centerY')), num(gr.getAttribute('step'), 50), num(gr.getAttribute('stepCenter'), 50), desc(gr, 'color').map((c) => c.getAttribute('value')).filter(Boolean).join(' ')].join('|') : null;
       ctx.borderFill[b.getAttribute('id')] = {
         left: side('leftBorder'), right: side('rightBorder'), top: side('topBorder'), bottom: side('bottomBorder'),
         fill: face && face !== 'none' && !/^#?FFFFFFFF$/i.test(face) ? face : null,
+        grad: grad && grad.split('|')[6].includes('#') ? grad : null,
         img: ibImg ? { ref: ibImg.getAttribute('binaryItemIDRef'), mode: ib.getAttribute('mode') || 'TOTAL' } : null,
         diag: (() => {
           const sl = kid(b, 'slash'), bs = kid(b, 'backSlash');
@@ -642,7 +664,9 @@ const HWPX = (() => {
     if (!cp) return '';
     const s = [];
     if (cp.font && cp.font !== App.defaultFont) s.push(`font-family:${fontStack(cp.font).replace(/"/g, "'")}`);
-    if (cp.size && cp.size !== App.defaultSize) s.push(`font-size:${cp.size}pt`);
+    // 상대 크기(relSz): 글자 크기에 곱함
+    const esz = cp.size && cp.relSz && cp.relSz !== 100 ? Math.round(cp.size * cp.relSz) / 100 : cp.size;
+    if (esz && esz !== App.defaultSize) s.push(`font-size:${esz}pt`);
     if (cp.bold) s.push('font-weight:bold');
     if (cp.italic) s.push('font-style:italic');
     const deco = [cp.underline && 'underline', cp.strike && 'line-through'].filter(Boolean);
@@ -655,6 +679,8 @@ const HWPX = (() => {
       s.push(`vertical-align:${cp.sup ? 'super' : 'sub'};font-size:${Math.round((cp.size || 10) * 0.7 * 2) / 2}pt`);
     }
     if (cp.spacing) s.push(`letter-spacing:${cp.spacing / 100}em`);
+    // 글자 위치(offset): 글자 크기의 %만큼 아래(+)/위(-)로
+    if (cp.offset && !cp.sup && !cp.sub) s.push(`position:relative;top:${cp.offset / 100}em`);
     if (cp.ratio && cp.ratio !== 100) s.push(`--hr:${Math.max(50, Math.min(200, cp.ratio))}`);
     if (cp.shadow) s.push(`text-shadow:0.08em 0.08em 0 ${cp.shadow}`);
     if (cp.outline) s.push('-webkit-text-stroke:0.035em currentColor;-webkit-text-fill-color:transparent');
@@ -776,7 +802,7 @@ const HWPX = (() => {
         }
         const lsa = kids(p, 'linesegarray')[0];
         const segs = lsa ? kids(lsa, 'lineseg').map((ls) => +ls.getAttribute('textpos')) : [];
-        if (ok && segs.length > 1) {
+        if (ok && segs.length >= 1 && chars.some((c) => c.trim())) {
           const offs = [];
           for (const q of segs) {
             if (!(q > 0 && q < chars.length) || chars[q - 1] === '\n') continue;
@@ -784,7 +810,7 @@ const HWPX = (() => {
             for (let x = 0; x < q; x++) if (chars[x] === '\n') nl++;
             offs.push(q - nl);
           }
-          if (offs.length) attrs += ` data-hl="${offs.join(',')}" data-hh="${textHash(chars.filter((c) => c !== '\n').join(''))}"`;
+          attrs += ` data-hl="${offs.join(',')}" data-hh="${textHash(chars.filter((c) => c !== '\n').join(''))}"`;
         }
       }
       for (const run of kids(p, 'run')) {
@@ -812,7 +838,20 @@ const HWPX = (() => {
             flushPara(false);
             // 한 문단에 붙은 두 번째 이후 표 (앞 표가 여러 쪽에 걸치면 한글은 다음 쪽에서 시작)
             let th = tableHtml(node, ctx, pp);
-            if (tblInPara++ && !cur) {
+            // 글자처럼 취급한 표: 한글은 표 줄 아래에 줄 간격(lineseg spacing)만큼 더 띄움
+            const tacTbl = (kids(node, 'pos')[0] || { getAttribute: () => null }).getAttribute('treatAsChar') === '1';
+            {
+              const lsa = kids(p, 'linesegarray')[0];
+              const segs = lsa ? kids(lsa, 'lineseg') : [];
+              // 한 문단에 표만 여러 개(줄마다 표 하나)면 표마다 그 줄의 간격
+              const nT = kids(p, 'run').reduce((a2, r) => a2 + kids(r, 'tbl').length, 0);
+              const seg = segs.length === 1 && tblInPara === 0 ? segs[0] : segs.length === nT ? segs[tblInPara] : null;
+              if (tacTbl && seg) {
+                const sp = Math.round(U.hwp2px(num(seg.getAttribute('spacing'))) * 10) / 10;
+                if (sp > 0.5 && sp < 200) th = th.replace('<table', `<table data-lsp="${sp}"`);
+              }
+            }
+            if (tblInPara++ && !cur && !tacTbl) {
               th = th.replace('<table', '<table data-samepara="1"');
               // 한글: 같은 문단의 둘째 표는 다음 쪽으로 넘어가고, 문단 끝 표시는 첫 표 바로 아래에 보임
               const ecss = charCss(lastCp);
@@ -846,6 +885,11 @@ const HWPX = (() => {
             desc(node, 'pic').forEach((pic) => { cur += picHtml(pic, ctx); hasContent = true; });
           }
         }
+      }
+      // 글자처럼 취급한 표 뒤에 빈칸만 남은 경우: 한글은 그 빈칸이 표와 같은 줄에 있어 줄이 따로 생기지 않음
+      if (tblInPara && hasContent && !/<(img|svg|div|ruby)|class="(nobj|tab|pnnew|pnhide)/.test(cur) && !cur.replace(/<[^>]*>/g, '').replace(/&nbsp;|\s|\u200b/g, '')) {
+        const lsa = kids(p, 'linesegarray')[0];
+        if (lsa && kids(lsa, 'lineseg').length <= tblInPara) { cur = ''; hasContent = false; }
       }
       // 빈 문단은 글자 크기를 살려 빈 줄 높이 유지
       if (!out.length || hasContent) {
@@ -918,6 +962,8 @@ const HWPX = (() => {
       if (ch === ' ') { if (prevSp) { out += '&nbsp;'; prevSp = false; } else { out += ' '; prevSp = true; } continue; }
       out += ch; prevSp = false;
     }
+    // 문단 끝의 긴 띄어쓰기(밑줄 친 빈칸 등): 한글은 줄 끝 빈칸으로 줄을 바꾸지 않음 → 줄 끝에 매달리게(pre-wrap)
+    out = out.replace(/((?:&nbsp;| ){2,})((?:<\/[a-z]+>)*)$/i, (m0, sp, tail) => `<span class="tsp">${' '.repeat((sp.match(/&nbsp;| /g) || []).length)}</span>${tail}`);
     return out;
   }
   // 덧말: 본말 위(아래)에 작은 글자. HTML ruby로 보여 줌 (szRatio 0 = 한글 기본 50%)
@@ -1307,7 +1353,9 @@ const HWPX = (() => {
             const b = bf[key];
             if (!b || b.type === 'NONE') st.push(`border-${side}:none`);
             else {
-              const style = { DASH: 'dashed', DOT: 'dotted', DASH_DOT: 'dashed', DASH_DOT_DOT: 'dashed', LONG_DASH: 'dashed', DOUBLE_SLIM: 'double', SLIM_THICK: 'double', THICK_SLIM: 'double', SLIM_THICK_SLIM: 'double' }[b.type] || 'solid';
+              let style = { DASH: 'dashed', DOT: 'dotted', DASH_DOT: 'dashed', DASH_DOT_DOT: 'dashed', LONG_DASH: 'dashed', DOUBLE_SLIM: 'double', SLIM_THICK: 'double', THICK_SLIM: 'double', SLIM_THICK_SLIM: 'double' }[b.type] || 'solid';
+              // 굵은+가는 이중선이 1mm보다 가늘면 한글 화면에서는 굵은 한 줄처럼 보임
+              if (/THICK/.test(b.type) && (parseFloat(b.width) || 0) < 1) style = 'solid';
               const wpx = style === 'double' ? Math.max(3, borderMMToPx(b.width)) : borderMMToPx(b.width);
               st.push(`border-${side}:${wpx}px ${style} ${b.color || '#000'}`);
               const bmm = parseFloat(b.width) || 0.12;
@@ -1315,6 +1363,7 @@ const HWPX = (() => {
             }
           }
           if (bf.fill) st.push(`background-color:${bf.fill}`);
+          if (bf.grad && !bf.img) { st.push(`background-image:${gradCss(bf.grad)}`); tdAttr += ` data-grad="${bf.grad}"`; }
           const meta = bgMeta[c.r + ',' + c.c];
           const bgu = bf.img && ctx.images[bf.img.ref];
           if (meta && ctx.images[meta.b]) {

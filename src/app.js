@@ -76,6 +76,28 @@ const App = {
   },
 
   async loadLocalFonts() {
+    // 한글(한컴오피스) 폴더의 글꼴: Windows에 설치되지 않아 이름만으로는 못 찾으므로 파일을 직접 연결
+    let appNames = [];
+    try {
+      const af = window.native && window.native.appFonts ? await window.native.appFonts() : [];
+      if (af && af.length) {
+        const css = [];
+        const names = new Set();
+        for (const f of af) {
+          for (const n of f.names) {
+            css.push(`@font-face{font-family:"${n.replace(/["\\]/g, '')}";src:url("${f.url}");unicode-range:U+0-9F,U+A1-10FFFF;font-weight:${f.weight || 400};${f.italic ? 'font-style:italic;' : ''}font-display:block}`);
+            if (/[가-힣]/.test(n) || !f.names.some((x) => /[가-힣]/.test(x))) names.add(n);
+          }
+        }
+        const st = h('style', { id: 'app-fonts' });
+        st.textContent = css.join('\n');
+        document.head.append(st);
+        appNames = [...names];
+        // 이미 그려진 문서는 글꼴이 들어오면 줄바꿈이 바뀌므로 다시 배치
+        if (document.fonts) document.fonts.addEventListener('loadingdone', () => { if (this.layoutSoon) this.layoutSoon(); });
+      }
+    } catch { /* 없음 */ }
+    if (appNames.length) { this.fonts = Array.from(new Set([...(this.fonts || FONT_LIST), ...appNames])); this.fillFontSelect(); }
     try {
       if (!window.queryLocalFonts) return;
       const fonts = await window.queryLocalFonts();
@@ -90,7 +112,7 @@ const App = {
         if (st && !plain.test(st) && !/italic|oblique/i.test(st)) names.add(`${famKo} ${st}`);
       }
       const fam = Array.from(names).sort((a, b) => a.localeCompare(b, 'ko'));
-      this.fonts = Array.from(new Set([...FONT_LIST, ...fam]));
+      this.fonts = Array.from(new Set([...FONT_LIST, ...appNames, ...fam]));
       this.fillFontSelect();
     } catch { /* 권한 없음 */ }
   },
@@ -1811,7 +1833,7 @@ const MENUS = [
   { name: '입력', key: 'D', items: ['table-create', 'image-insert', 'textbox', '-', 'shape-line', 'shape-arrow', 'shape-darrow', 'shape-rect', 'shape-roundrect', 'shape-ellipse', 'shape-triangle', '-', 'wrap-inline', 'wrap-left', 'wrap-right', 'wrap-front', 'wrap-behind', 'object-props', 'image-caption', 'shape-text', 'obj-group', 'obj-ungroup', '-', 'page-break', 'symbols', 'date-insert', 'link', '-', 'mm-mark'] },
   { name: '서식', key: 'J', items: ['char-shape', 'para-shape', 'tab-dialog', 'style-dlg', '-', 'bold', 'italic', 'underline', 'strike', 'sup', 'sub', 'normal-char', '-', 'size-up', 'size-down', 'spacing-wide', 'spacing-narrow', 'ratio-wide', 'ratio-narrow', 'lh-up', 'lh-down', '-', 'align-justify', 'align-left', 'align-center', 'align-right', 'align-distribute', '-', 'indent-first', 'outdent-first', 'margin-inc', 'margin-dec', '-', 'numbering', 'numbering-shape', 'num-restart', 'bullets', 'bullet-shape', 'list-deeper', 'list-shallower'] },
   { name: '쪽', key: 'W', items: ['page-setup', 'page-break', '-', 'columns', 'col-break', '-', 'page-number', 'page-newnum', 'page-hide', 'header-footer'] },
-  { name: '표', key: 'B', items: ['table-create', '-', 'cell-block', 'row-col-insert', 'row-add', 'col-add', 'row-col-delete', '-', 'cell-merge', 'cell-split', 'cell-props', 'equal-width', 'equal-height', '-', 'table-split', 'table-join', '-', 'table-props', 'wrap-inline', 'wrap-left', 'wrap-right', 'wrap-front', 'wrap-behind', '-', 'table-delete'] },
+  { name: '표', key: 'B', items: ['table-create', '-', 'cell-block', 'row-col-insert', 'row-add', 'col-add', 'row-col-delete', '-', 'cell-merge', 'cell-split', 'cell-props', 'cell-valign-top', 'cell-valign-middle', 'cell-valign-bottom', 'equal-width', 'equal-height', '-', 'table-split', 'table-join', '-', 'table-props', 'wrap-inline', 'wrap-left', 'wrap-right', 'wrap-front', 'wrap-behind', '-', 'table-delete'] },
   { name: '도구', key: 'K', items: ['macro-record', 'macro-run', '-', 'mm-mark', 'mm-make', 'mm-datadoc', '-', 'default-font', 'shortcuts', 'about'] },
 ];
 
@@ -1927,7 +1949,7 @@ App.showContextMenu = function (e) {
       const pos = document.caretRangeFromPoint(e.clientX, e.clientY);
       if (pos && !Sel.range()?.intersectsNode(pos.startContainer)) Sel.set(pos);
     }
-    items.push('-', 'cell-block', 'row-col-insert', 'row-col-delete', 'cell-merge', 'cell-split', 'table-split', 'table-join', 'cell-props', 'table-props', 'equal-width', 'equal-height', '-', ...wrapItems(Shapes.TABLE_WRAPS), '-', 'table-delete');
+    items.push('-', 'cell-block', 'row-col-insert', 'row-col-delete', 'cell-merge', 'cell-split', 'table-split', 'table-join', 'cell-props', 'cell-valign-top', 'cell-valign-middle', 'cell-valign-bottom', 'table-props', 'equal-width', 'equal-height', '-', ...wrapItems(Shapes.TABLE_WRAPS), '-', 'table-delete');
   }
   const pop = App.renderMenu(items.map((x) => (typeof x === 'string' ? (x === '-' ? '-' : { cmd: x }) : x)));
   const cm = $('#ctxmenu');

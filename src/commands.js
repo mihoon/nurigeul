@@ -155,6 +155,9 @@ const Commands = (() => {
   def('표', 'cell-merge', '셀 합치기', { keyLabel: 'M (셀 블록)', enabled: () => Table.block.active(), run: () => Table.merge() });
   def('표', 'cell-split', '셀 나누기…', { keyLabel: 'S (셀 블록)', enabled: inTable, ask: () => Dialogs.splitCell(), run: (a) => Table.split(a.rows, a.cols) });
   def('표', 'cell-props', '셀 테두리/배경…', { keyLabel: 'L (셀 블록)', enabled: inTable, ask: () => Dialogs.cellProps(), run: (a) => Table.applyCellProps(cellPropsArgs(a)) });
+  def('표', 'cell-valign-top', '셀 세로 정렬: 위', { enabled: inTable, checked: () => Table.cellVAlign() === 'top', run: () => Table.applyCellProps({ valign: 'top' }) });
+  def('표', 'cell-valign-middle', '셀 세로 정렬: 가운데', { enabled: inTable, checked: () => Table.cellVAlign() === 'middle', run: () => Table.applyCellProps({ valign: 'middle' }) });
+  def('표', 'cell-valign-bottom', '셀 세로 정렬: 아래', { enabled: inTable, checked: () => Table.cellVAlign() === 'bottom', run: () => Table.applyCellProps({ valign: 'bottom' }) });
   def('표', 'equal-width', '셀 너비를 같게', { keyLabel: 'W (셀 블록)', enabled: inTable, run: () => Table.equalWidths() });
   def('표', 'equal-height', '셀 높이를 같게', { keyLabel: 'H (셀 블록)', enabled: inTable, run: () => Table.equalHeights() });
   def('표', 'cell-resize', '셀 크기 조절', { hidden: true, run: (a) => (a.dx ? Table.resizeCols(a.dx) : Table.resizeRows(a.dy)) });

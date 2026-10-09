@@ -95,6 +95,7 @@ body.show-marks #marks, body.show-paramarks #marks { display: block; }
   font-family: var(--doc-font); font-size: 10pt; line-height: 1.6; text-align: justify; color: #000;
   word-break: normal; overflow-wrap: break-word; caret-color: #000; }
 #editor p, #editor div.p { margin: 0; min-height: 1em; }
+#editor p[style*="line-height: 0."], #editor p[style*="line-height:0."], #editor td > p[style*="line-height: 0."]:only-child, #editor td > p[style*="line-height:0."]:only-child { min-height: 0; }
 #editor h1, #editor h2, #editor h3 { margin: 0; }
 #editor ul, #editor ol { margin: 0; padding-left: 2em; }
 #editor li::marker { font-family: inherit; }
@@ -252,6 +253,7 @@ body:not(.no-guides) #editor div.cols { outline: 1px dotted #b9c3dd; outline-off
 /* tables */
 #editor table { border-collapse: collapse; table-layout: fixed; margin: 2px 0; }
 #editor td, #editor th { border: 1px solid #000; padding: 2px 7px; vertical-align: middle; min-width: 12px; height: 24px; font-weight: normal; }
+#editor tr[style*="height"] > td, #editor tr[style*="height"] > th { height: auto; }
 #editor td > p:only-child { min-height: 1.6em; }
 #editor td.cell-sel { background-image: linear-gradient(rgba(37, 99, 201, .28), rgba(37, 99, 201, .28)) !important; }
 #editor table.tbl-center { margin-left: auto; margin-right: auto; }
@@ -278,7 +280,7 @@ body.tbl-move #editor, body.tbl-move #editor * { cursor: move !important; }
 @media print { #page-guides .pg-corner { display: none; } }
 #page-cover .pg-split { position: absolute; border-bottom: 1px solid #000; }
 #editor span.pgs { display: none; }
-#editor p.hl-lock { white-space: nowrap; }
+#editor p.hl-lock { white-space: nowrap; word-spacing: var(--hlws, 0px); }
 #print-cover { display: none; position: absolute; left: 0; top: 0; right: 0; pointer-events: none; z-index: 2; }
 #print-cover .pg-split { position: absolute; background: #fff; border-bottom: 1px solid #000; box-sizing: border-box; }
 #page-guides .pg-line { position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed #b3b9c3; }
@@ -456,3 +458,6 @@ body.printing ::selection { background: transparent !important; }
 #editor.md-doc > p:not([data-mt="code"]):not([data-mt="front"]), #editor.md-doc > ul, #editor.md-doc > ol, #editor.md-doc > table { margin-bottom: 5pt; }
 #tbl-out-caret { position: absolute; width: 1.5px; background: #000; z-index: 6; pointer-events: none; animation: tblcaret 1s steps(1) infinite; }
 @keyframes tblcaret { 50% { opacity: 0; } }
+#editor span.tsp { white-space: pre-wrap; }
+/* 내어쓰기(음수 들여쓰기) 문단은 첫 줄이 문단 상자 왼쪽 밖으로 나가므로 자르지 않음 */
+#editor p:has(span.tsp):not([style*="text-indent:-"]):not([style*="text-indent: -"]) { overflow-x: clip; }
