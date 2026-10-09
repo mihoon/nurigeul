@@ -1100,12 +1100,85 @@ const App = {
       TabStops.wrapAll();
       TabStops.layoutAll();
     } else if (text != null) {
-      const lines = text.replace(/\r\n?/g, '\n').split('\n');
-      if (lines.length === 1) document.execCommand('insertText', false, text);
-      else document.execCommand('insertHTML', false, lines.map((l) => `<p>${escHtml(l).replace(/\t/g, '<span class="tab" contenteditable="false">&#9;</span>') || '<br>'}</p>`).join(''));
+      // 텍스트 파일 끝의 줄바꿈 하나는 붙이지 않음 (그대로 넣으면 마지막에 빈 줄이 하나 더 생김)
+      const lines = text.replace(/\r\n?/g, '\n').replace(/\n$/, '').split('\n');
+      if (lines.length === 1) document.execCommand('insertText', false, lines[0]);
+      else if (!App.pasteLines(lines)) document.execCommand('insertHTML', false, lines.map((l) => `<p>${escHtml(l).replace(/\t/g, '<span class="tab" contenteditable="false">&#9;</span>') || '<br>'}</p>`).join(''));
     }
     Para.ensure();
     Sel.editor.querySelectorAll('td, th').forEach((td) => { if (!td.firstElementChild) td.append(h('p', {}, h('br'))); });
+  },
+
+  // 여러 줄 글 붙이기: 커서 자리 문단을 나눠 줄마다 같은 문단·글자 모양의 문단으로 넣음
+  // (크롬 insertHTML은 문단 모양을 버리고, 앞뒤 문단과 합치면서 빈 문단을 하나 더 만들기도 함)
+  pasteLines(lines) {
+    const r = Sel.range();
+    if (!r) return false;
+    const blk = blockOf(r.startContainer);
+    if (!blk || !/^(P|H[1-6])$/.test(blk.tagName) || !Sel.editor.contains(blk) || blk.closest('.tb-body, .nobj, .figcap')) return false;
+    History.checkpoint();
+    r.deleteContents();
+    // 커서 자리 글자 모양(바깥 문단까지의 span 등) — 새 줄에도 같은 모양으로
+    const chain = [];
+    for (let n = r.startContainer.nodeType === 3 ? r.startContainer.parentElement : r.startContainer; n && n !== blk; n = n.parentElement) {
+      if (n.matches && !n.matches('span.rw, span.pgs, span.tab, ruby, rt, .nobj, a')) chain.unshift(n);
+    }
+    const wrap = (frag) => {
+      let node = frag;
+      for (let i = chain.length - 1; i >= 0; i--) { const c = chain[i].cloneNode(false); c.append(node); node = c; }
+      return node;
+    };
+    const lineFrag = (l) => {
+      const f = document.createDocumentFragment();
+      l.split('\t').forEach((part, i) => {
+        if (i) f.append(h('span', { class: 'tab', contenteditable: 'false' }, '\t'));
+        if (part) f.append(document.createTextNode(part));
+      });
+      return f;
+    };
+    // 커서 뒤 나머지 글
+    const tailR = document.createRange();
+    tailR.setStart(r.startContainer, r.startOffset);
+    tailR.setEnd(blk, blk.childNodes.length);
+    const tail = tailR.extractContents();
+    // 첫 줄은 지금 문단 끝에
+    const first = lineFrag(lines[0]);
+    if (first.childNodes.length) {
+      const ins = document.createRange(); ins.setStart(r.startContainer, r.startOffset); ins.collapse(true);
+      ins.insertNode(first);
+    }
+    const fresh = () => {
+      const p = blk.cloneNode(false);
+      p.removeAttribute('id'); p.removeAttribute('data-hl'); p.removeAttribute('data-hh'); p.classList.remove('hl-lock');
+      if (!p.className) p.removeAttribute('class');
+      return p;
+    };
+    let after = blk, last = null, lastText = null;
+    for (let i = 1; i < lines.length; i++) {
+      const p = fresh();
+      const f = lineFrag(lines[i]);
+      lastText = f.lastChild && f.lastChild.nodeType === 3 ? f.lastChild : null;
+      p.append(wrap(f.childNodes.length ? f : h('br')));
+      after.after(p); after = p; last = p;
+    }
+    // 커서 뒤 나머지는 마지막 줄 뒤에 붙이고, 커서는 붙인 글 끝에
+    const tailHasContent = tail.textContent.replace(/\u200b/g, '') || (tail.querySelector && tail.querySelector('img, .nobj, .tab, br'));
+    const caretAt = (() => {
+      if (lastText) return [lastText, lastText.length];
+      return null;
+    })();
+    if (tailHasContent) last.append(tail);
+    for (const p of [blk, last]) {
+      p.querySelectorAll(':scope br').forEach((b) => { if (p.textContent.replace(/\u200b/g, '') && !b.nextSibling && b.parentElement.lastChild === b) b.remove(); });
+      if (!p.textContent.replace(/\u200b/g, '') && !p.querySelector('img, .nobj, br, .tab')) p.append(chain.length ? wrap(h('br')) : h('br'));
+    }
+    blk.removeAttribute('data-hl'); blk.removeAttribute('data-hh'); blk.classList.remove('hl-lock');
+    const rg = document.createRange();
+    if (caretAt) rg.setStart(caretAt[0], caretAt[1]);
+    else rg.setStart(last, 0);
+    rg.collapse(true);
+    Sel.set(rg);
+    return true;
   },
 
   toggleBlockMode(force) {
@@ -2006,6 +2079,35 @@ function sanitizeHtml(html) {
     }
   };
   walk(body);
+  // 문단을 감싼 div(웹 페이지 틀)는 벗김 — 그대로 두면 문단들이 한 덩어리로 들어감
+  const BLOCKS = /^(P|DIV|TABLE|UL|OL|LI|TR|TBODY|THEAD|TFOOT)$/;
+  let more = true;
+  while (more) {
+    more = false;
+    for (const d of Array.from(body.querySelectorAll('div'))) {
+      if (d.closest('td, th, li') && d.closest('td, th, li') !== d) continue;
+      if (Array.from(d.children).some((x) => BLOCKS.test(x.tagName))) { d.replaceWith(...Array.from(d.childNodes)); more = true; }
+    }
+  }
+  // 문단 사이의 줄바꿈 공백(</p>⏎<p>)은 지움 — 크롬이 이것을 빈 문단으로 넣어 마지막 문단 앞에 빈 줄이 생김
+  const tw0 = doc.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+  const wsNodes = [];
+  for (let t = tw0.nextNode(); t; t = tw0.nextNode()) {
+    if (/\S/.test(t.nodeValue.replace(/\u00a0/g, 'x'))) continue;
+    const par = t.parentNode;
+    if (par && Array.from(par.children).some((x) => BLOCKS.test(x.tagName))) wsNodes.push(t);
+  }
+  wsNodes.forEach((t) => t.remove());
+  // 문단 끝에 남은 줄바꿈(<br>)과 맨 끝의 <br>은 지움 — 마지막 줄 뒤에 빈 줄이 하나 더 생김
+  body.querySelectorAll('p').forEach((p) => {
+    let last = p.lastChild;
+    while (last && last.nodeType === 3 && !last.nodeValue.trim()) last = last.previousSibling;
+    if (last && last.nodeName === 'BR' && p.textContent.trim()) last.remove();
+  });
+  for (let last = body.lastChild; last && (last.nodeName === 'BR' || (last.nodeType === 3 && !last.nodeValue.trim())); last = body.lastChild) {
+    if (last.nodeName === 'BR' && !Array.from(body.children).some((x) => BLOCKS.test(x.tagName))) break; // 글만 있는 조각의 줄바꿈은 그대로
+    last.remove();
+  }
   // 표 셀은 문단을 갖게
   body.querySelectorAll('td, th').forEach((td) => {
     if (!Array.from(td.children).some((x) => x.tagName === 'P' || x.tagName === 'TABLE')) {
