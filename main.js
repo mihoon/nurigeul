@@ -235,19 +235,25 @@ let appFontsCache = null;
 ipcMain.handle('fonts:app', () => {
   if (appFontsCache) return appFontsCache;
   const list = [];
-  if (process.platform !== 'win32') return (appFontsCache = list);
-  const roots = [process.env['ProgramFiles(x86)'], process.env.ProgramFiles, 'C:\\Program Files (x86)', 'C:\\Program Files'].filter(Boolean);
-  const dirs = new Set();
   const ls = (d) => { try { return fs.readdirSync(d, { withFileTypes: true }); } catch { return []; } };
+  let roots;
+  const dirs = new Set();
+  if (process.platform === 'win32') roots = [process.env['ProgramFiles(x86)'], process.env.ProgramFiles, 'C:\\Program Files (x86)', 'C:\\Program Files'].filter(Boolean);
+  else {
+    // 리눅스: 한컴오피스 리눅스판(/opt/hnc), 와인으로 설치한 한글(~/.wine/drive_c/Program Files…)
+    const home = require('os').homedir();
+    roots = ['/opt', '/usr/share', path.join(home, '.wine/drive_c/Program Files (x86)'), path.join(home, '.wine/drive_c/Program Files')];
+    for (const d of ['/opt/hnc/hoffice11/Bin/fonts', '/opt/hnc/hoffice9/Bin/fonts', '/opt/hnc/hoffice/Bin/fonts']) if (fs.existsSync(d)) dirs.add(d);
+  }
   for (const r of new Set(roots)) {
-    for (const vendor of ['HNC', 'Hnc', 'Hancom']) {
+    for (const vendor of ['HNC', 'Hnc', 'hnc', 'Hancom']) {
       const v = path.join(r, vendor);
       for (const prod of ls(v)) {
         if (!prod.isDirectory()) continue;
         const pp = path.join(v, prod.name);
         // HNC\Office 2024\HOffice130\Shared\TTF, HNC\Office NEO\HOffice100\Shared\TTF, HNC\HOffice\Shared\TTF ...
         const cands = [path.join(pp, 'Shared'), ...ls(pp).filter((x) => x.isDirectory()).map((x) => path.join(pp, x.name, 'Shared'))];
-        for (const sh of cands) for (const sub of ['TTF', 'Fonts', 'TTF\\Hnc']) { const d = path.join(sh, sub); if (fs.existsSync(d)) dirs.add(d); }
+        for (const sh of cands) for (const sub of ['TTF', 'Fonts', path.join('TTF', 'Hnc')]) { const d = path.join(sh, sub); if (fs.existsSync(d)) dirs.add(d); }
       }
     }
   }
@@ -258,7 +264,7 @@ ipcMain.handle('fonts:app', () => {
       if (e.isDirectory()) { if (depth < 2) walk(f, depth + 1); continue; }
       if (!/\.(ttf|ttc|otf)$/i.test(e.name) || seen.has(e.name.toLowerCase())) continue;
       seen.add(e.name.toLowerCase());
-      for (const fn of fontNames(f).slice(0, 1)) list.push({ ...fn, url: 'file:///' + f.replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/').replace(/^([A-Za-z])%3A/, '$1:') });
+      for (const fn of fontNames(f).slice(0, 1)) list.push({ ...fn, url: require('url').pathToFileURL(f).href });
     }
   };
   for (const d of dirs) walk(d, 0);

@@ -1,10 +1,13 @@
 {
   "name": "nurigeul",
   "productName": "누리글",
-  "version": "1.5.70",
+  "version": "1.5.71",
   "description": "아래아한글 단축키를 따르는 가벼운 문서 편집기 (HWPX)",
   "main": "main.js",
-  "author": "mihoon",
+  "author": {
+    "name": "mihoon",
+    "email": "topcfp@gmail.com"
+  },
   "license": "MIT",
   "scripts": {
     "start": "electron .",
@@ -75,11 +78,64 @@
     "electronLanguages": [
       "ko",
       "en-US"
-    ]
+    ],
+    "linux": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Office",
+      "executableName": "nurigeul",
+      "artifactName": "Nurigeul-${version}-linux-${arch}.${ext}",
+      "synopsis": "아래아한글 대신 쓰는 가벼운 문서 편집기",
+      "description": "HWPX/HWP 문서를 열고 편집·저장하는 한글 문서 편집기",
+      "mimeTypes": [
+        "application/hwp+zip",
+        "application/x-hwp",
+        "application/haansofthwpx",
+        "text/markdown"
+      ],
+      "desktop": {
+        "entry": {
+          "Name": "누리글",
+          "Comment": "한글(HWPX) 문서 편집기"
+        }
+      },
+      "syncDesktopName": true
+    },
+    "deb": {
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0"
+      ],
+      "recommends": [
+        "fonts-noto-cjk",
+        "fonts-nanum"
+      ]
+    }
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/mihoon/nurigeul.git"
   },
-  "homepage": "https://github.com/mihoon/nurigeul"
+  "homepage": "https://github.com/mihoon/nurigeul",
+  "desktopName": "nurigeul.desktop"
 }
