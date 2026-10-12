@@ -511,6 +511,9 @@ const Dialogs = {
       rows.push(h('tr', { class: 'h' }, h('td', { colspan: 2 }, group.name)));
       for (const c of group.items) if (c.keys) rows.push(h('tr', {}, h('td', { class: 'k' }, c.keys.join(', ')), h('td', {}, c.label)));
     }
+    rows.push(h('tr', { class: 'h' }, h('td', { colspan: 2 }, '여러 커서 동시 편집')));
+    [['Ctrl+Shift+;', '커서가 있는 낱말(또는 고른 글자)과 같은 글자를 모두 찾아 커서를 둠'], ['Ctrl+클릭', '그 자리에 커서 추가 (끌면 범위 추가, 커서 자리를 다시 Ctrl+클릭하면 빼기)'], ['Ctrl+Alt+↓ / ↑', '아래/위 줄에 커서 추가'], ['Esc', '여러 커서 끝내기']]
+      .forEach(([k, l]) => rows.push(h('tr', {}, h('td', { class: 'k' }, k), h('td', {}, l))));
     rows.push(h('tr', { class: 'h' }, h('td', { colspan: 2 }, '표 안 / 셀 블록 상태')));
     [['Tab / Shift+Tab', '다음/이전 셀로 이동 (마지막 셀에서 Tab: 줄 추가)'], ['Ctrl+Enter (표 안)', '아래에 줄 추가'], ['F5', '셀 블록 (두 번: 확장, 세 번: 표 전체)'], ['M', '셀 합치기'], ['S', '셀 나누기'], ['L', '셀 테두리/배경'], ['H / W', '셀 높이/너비를 같게'], ['F7 (셀 블록)', '세로 줄(칸) 전체 선택'], ['F8 (셀 블록)', '가로 줄 전체 선택'], ['Ctrl+방향키', '셀 크기 조절 (표 크기도 바뀜)'], ['Alt+방향키', '셀 크기 조절 (표 전체 크기는 그대로)'], ['Shift+방향키', '선택한 셀만 크기 조절'], ['F5 두 번 + 방향키', '셀 블록 넓히기'], ['Delete', '셀 내용 지우기'], ['Esc', '셀 블록 해제']]
       .forEach(([k, l]) => rows.push(h('tr', {}, h('td', { class: 'k' }, k), h('td', {}, l))));
@@ -520,7 +523,7 @@ const Dialogs = {
     Dialog.open({
       title: '누리글 정보', width: 420,
       body: h('div', { style: { lineHeight: 1.7 } },
-        h('div', { style: { fontSize: '18px', fontWeight: 'bold' } }, '누리글 1.5.72'),
+        h('div', { style: { fontSize: '18px', fontWeight: 'bold' } }, '누리글 1.5.73'),
         h('div', {}, '아래아한글 단축키 체계를 따르는 가벼운 문서 편집기'),
         h('div', { class: 'note' }, 'HWPX 열기/저장 · HWP 열기(HWPX로 변환) · DOCX/PDF 내보내기 · 표 · 그림 · 키 매크로 · 메일머지')),
       buttons: [{ label: '확인', primary: true }],

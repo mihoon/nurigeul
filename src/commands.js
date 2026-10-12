@@ -48,7 +48,7 @@ const Commands = (() => {
   def('편집', 'col-block', '칸 블록 (네모 범위)', { keys: ['F4'], noHistory: true, run: () => (ColBlock.active ? ColBlock.stop() : ColBlock.start()) });
   def('편집', 'caret-add-down', '아래 줄에 커서 추가', { keys: ['Ctrl+Alt+Down'], noHistory: true, run: () => MultiSel.addLine(true) });
   def('편집', 'caret-add-up', '위 줄에 커서 추가', { keys: ['Ctrl+Alt+Up'], noHistory: true, run: () => MultiSel.addLine(false) });
-  def('편집', 'select-same', '같은 글자 모두 선택', { keys: ['Ctrl+Shift+;'], noHistory: true, run: () => MultiSel.start() });
+  def('편집', 'select-same', '같은 낱말 모두 선택 (여러 커서)', { keys: ['Ctrl+Shift+;'], noHistory: true, run: () => MultiSel.start() });
   def('편집', 'block', '블록 설정', { keys: ['F3'], noHistory: true, run: () => App.toggleBlockMode() });
   def('편집', 'delete-line', '한 줄 지우기', { keys: ['Ctrl+Y'], run: () => Editing.deleteLine() });
   def('편집', 'delete-eol', '줄 뒤 지우기', { keys: ['Alt+Y'], run: () => Editing.deleteToEol() });

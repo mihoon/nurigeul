@@ -171,6 +171,65 @@ const MultiSel = {
     $('#st-block').textContent = `커서 ${this.carets.length}개 (입력·지우기·방향키가 모두에 적용 · Esc 끝내기)`;
     App.scrollToSelection();
   },
+  // Ctrl+클릭: 그 자리에 커서 추가 (VS Code처럼). 끌면 그 범위를 선택으로 추가, 이미 있는 커서를 Ctrl+클릭하면 빼기
+  ctrlClick(e) {
+    if (e.button !== 0 || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return false;
+    const ed = Sel.editor;
+    if (e.target.closest && e.target.closest('img, .nobj, .md-task, [contenteditable="false"]')) return false;
+    if (Table.block && Table.block.active()) return false;
+    const pos = document.caretRangeFromPoint(e.clientX, e.clientY);
+    if (!pos || !ed.contains(pos.startContainer) || pos.startContainer === ed) return false;
+    const blk = blockOf(pos.startContainer);
+    if (!blk || blk === ed) return false;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    History.endTyping();
+    const s = window.getSelection();
+    if (!this.active) {
+      History.checkpoint();
+      this.carets = s.rangeCount && ed.contains(s.focusNode) && ed.contains(s.anchorNode) ? [this.make(s.anchorNode, s.anchorOffset, s.focusNode, s.focusOffset)] : [];
+      this.primary = 0;
+      this.active = true;
+    }
+    // 이미 있는 커서 자리면 빼기
+    const same = (r) => r.compareBoundaryPoints(Range.START_TO_START, pos) === 0;
+    const hit = this.carets.findIndex((c) => this.collapsed(c) && same(c.f));
+    if (hit >= 0 && this.carets.length > 1) {
+      this.carets.splice(hit, 1);
+      this.primary = Math.min(this.primary, this.carets.length - 1);
+      if (hit < this.primary) this.primary--;
+      this.primary = Math.max(0, this.primary);
+      this.after();
+      return true;
+    }
+    if (hit >= 0) { this.after(); return true; }
+    const nc = this.make(pos.startContainer, pos.startOffset, pos.startContainer, pos.startOffset);
+    this.carets.push(nc);
+    this.primary = this.carets.length - 1;
+    this.after();
+    // 끌어서 범위 선택
+    const move = (ev) => {
+      const p = document.caretRangeFromPoint(ev.clientX, ev.clientY);
+      if (!p || !ed.contains(p.startContainer)) return;
+      nc.f.setStart(p.startContainer, p.startOffset); nc.f.collapse(true);
+      this.focusPrimary();
+      this.draw();
+    };
+    const up = () => {
+      document.removeEventListener('mousemove', move, true);
+      document.removeEventListener('mouseup', up, true);
+      this.dedupe();
+      if (this.active) this.after();
+    };
+    document.addEventListener('mousemove', move, true);
+    document.addEventListener('mouseup', up, true);
+    return true;
+  },
+  after() {
+    this.focusPrimary();
+    this.draw();
+    $('#st-block').textContent = `커서 ${this.carets.length}개 (입력·지우기·방향키가 모두에 적용 · Ctrl+클릭: 커서 추가/빼기 · Esc 끝내기)`;
+  },
   // 같은 자리에 겹친 커서 합치기
   dedupe() {
     const out = [];
@@ -404,3 +463,8 @@ function wordAt(r) {
   rg.setStart(node, a); rg.setEnd(node, b);
   return { text: s.slice(a, b), range: rg };
 }
+// Ctrl+클릭으로 커서 추가 (편집기의 다른 mousedown 처리보다 먼저)
+document.addEventListener('DOMContentLoaded', () => {
+  const ed = document.getElementById('editor');
+  if (ed) ed.addEventListener('mousedown', (e) => { MultiSel.ctrlClick(e); }, true);
+});

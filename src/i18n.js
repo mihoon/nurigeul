@@ -12,7 +12,7 @@ const I18N = {
     '불러오기…': 'Open…', '저장하기': 'Save', '다른 이름으로 저장하기…': 'Save As…', 'DOCX(Word)로 내보내기…': 'Export to DOCX (Word)…',
     'PDF로 저장하기…': 'Save as PDF…', '그림으로 저장하기…': 'Save as Image…', '그림으로 저장': 'Save as Image', '파일 형식': 'Format', 'PNG (선명함)': 'PNG (sharp)', 'JPG (파일 작음)': 'JPG (smaller)', '해상도': 'Resolution', '96 dpi (화면용)': '96 dpi (screen)', '150 dpi (보통)': '150 dpi (normal)', '300 dpi (인쇄용)': '300 dpi (print)', '쪽 범위': 'Pages', '쪽 지정': 'Page list', '그림으로 저장했습니다.': 'Saved as image.', '편집 용지…': 'Page Setup…', '인쇄…': 'Print…', '문서 닫기': 'Close Document', '끝': 'Exit',
     '되돌리기': 'Undo', '다시 실행': 'Redo', '오려 두기': 'Cut', '복사하기': 'Copy', '붙이기': 'Paste', '골라 붙이기 (텍스트만)': 'Paste Special (Text Only)',
-    '모두 선택': 'Select All', '같은 글자 모두 선택': 'Select All Occurrences', '블록 설정': 'Block Selection', '한 줄 지우기': 'Delete Line',
+    '모두 선택': 'Select All', '같은 낱말 모두 선택 (여러 커서)': 'Select All Occurrences (Multi-cursor)', '블록 설정': 'Block Selection', '한 줄 지우기': 'Delete Line',
     '줄 뒤 지우기': 'Delete to End of Line', '단어 지우기': 'Delete Word', '찾기…': 'Find…', '찾아 바꾸기…': 'Find and Replace…', '다시 찾기': 'Find Next',
     '찾아가기…': 'Go To…', '모양 복사': 'Copy Format',
     '쪽 윤곽 (쪽 경계 표시)': 'Page Outline (Page Boundaries)', '조판 부호 (문단 끝 표시)': 'Formatting Marks', '가로 눈금자': 'Horizontal Ruler',
