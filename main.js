@@ -284,7 +284,146 @@ function fileArgs(argv) {
   return argv.slice(1).filter((a) => !a.startsWith('-') && /\.(hwpx|hwp|md|markdown|txt|html?)$/i.test(a) && fs.existsSync(a));
 }
 
-const gotLock = app.requestSingleInstanceLock();
+
+// ================= 업데이트 (GitHub 릴리스) =================
+const UPDATE_API = process.env.NURIGEUL_UPDATE_API || 'https://api.github.com/repos/mihoon/nurigeul/releases/latest';
+const RELEASES_PAGE = 'https://github.com/mihoon/nurigeul/releases/latest';
+// 업데이트 설정은 따로 (편집기 설정 파일은 화면 쪽이 통째로 덮어쓰므로)
+const updPath = () => path.join(app.getPath('userData'), 'update.json');
+function readSettings() { try { return JSON.parse(fs.readFileSync(updPath(), 'utf8')); } catch { return {}; } }
+function writeSettings(d) { try { fs.mkdirSync(path.dirname(updPath()), { recursive: true }); fs.writeFileSync(updPath(), JSON.stringify(d), 'utf8'); } catch { /* 무시 */ } }
+function msgBox(o) { if (process.env.NURIGEUL_UPDATE_AUTO) return Promise.resolve({ response: 0, checkboxChecked: false }); const w = mainWin(); return w ? dialog.showMessageBox(w, o) : dialog.showMessageBox(o); }
+function verCmp(a, b) {
+  const pa = String(a).replace(/^v/i, '').split(/[.-]/).map((x) => parseInt(x, 10) || 0);
+  const pb = String(b).replace(/^v/i, '').split(/[.-]/).map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) { const d = (pa[i] || 0) - (pb[i] || 0); if (d) return d > 0 ? 1 : -1; }
+  return 0;
+}
+// 이 실행 방식에 맞는 받을 파일: 포터블 exe / AppImage (나머지는 릴리스 페이지를 엶)
+function updateKind() {
+  if (process.platform === 'win32' && process.env.PORTABLE_EXECUTABLE_FILE) return { kind: 'portable', self: process.env.PORTABLE_EXECUTABLE_FILE, re: /^Nurigeul-Portable-[\d.]+\.exe$/i };
+  if (process.platform === 'linux' && process.env.APPIMAGE) return { kind: 'appimage', self: process.env.APPIMAGE, re: /^Nurigeul-[\d.]+-linux-x86_64\.AppImage$/i };
+  return { kind: 'page' };
+}
+async function fetchLatest() {
+  const r = await fetch(UPDATE_API, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Nurigeul/' + app.getVersion() } });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const j = await r.json();
+  return { version: String(j.tag_name || '').replace(/^v/i, ''), name: j.name || j.tag_name, notes: (j.body || '').replace(/\r/g, ''), page: j.html_url || RELEASES_PAGE, assets: (j.assets || []).map((a) => ({ name: a.name, url: a.browser_download_url, size: a.size })) };
+}
+// 렌더러에 물어볼 때 쓰는 창 (가장 앞 창)
+function mainWin() { return BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]; }
+let updateBusy = false;
+async function checkUpdate(manual) {
+  if (updateBusy) return;
+  const st = readSettings();
+  if (!manual) {
+    if (st.updateOff) return;
+    if (st.updateLast && Date.now() - st.updateLast < 6 * 3600 * 1000) return; // 6시간에 한 번
+  }
+  updateBusy = true;
+  try {
+    let info;
+    try { info = await fetchLatest(); } catch (err) {
+      if (manual) msgBox({ type: 'warning', title: L('업데이트', 'Update'), message: L('업데이트 정보를 가져오지 못했습니다.', 'Could not check for updates.'), detail: String(err.message || err), noLink: true });
+      return;
+    }
+    st.updateLast = Date.now(); writeSettings(st);
+    const cur = app.getVersion();
+    if (!info.version || verCmp(info.version, cur) <= 0) {
+      if (manual) msgBox({ type: 'info', title: L('업데이트', 'Update'), message: L(`지금 쓰고 있는 누리글 ${cur}이(가) 최신 버전입니다.`, `Nurigeul ${cur} is up to date.`), noLink: true });
+      return;
+    }
+    if (!manual && st.updateSkip === info.version) return;
+    const k = updateKind();
+    const asset = k.re ? info.assets.find((a) => k.re.test(a.name)) : null;
+    const notes = info.notes.length > 1500 ? info.notes.slice(0, 1500) + '\n…' : info.notes;
+    const canAuto = !!asset;
+    const btns = canAuto ? [L('지금 업데이트', 'Update now'), L('나중에', 'Later'), L('이 버전 건너뛰기', 'Skip this version')]
+      : [L('내려받는 곳 열기', 'Open download page'), L('나중에', 'Later'), L('이 버전 건너뛰기', 'Skip this version')];
+    const r = await msgBox({
+      type: 'info', title: L('누리글 업데이트', 'Nurigeul Update'),
+      message: L(`새 버전 누리글 ${info.version}이(가) 나왔습니다. (지금: ${cur})`, `Nurigeul ${info.version} is available. (current: ${cur})`),
+      detail: notes, buttons: btns, defaultId: 0, cancelId: 1, noLink: true,
+      checkboxLabel: L('시작할 때 업데이트를 확인하지 않기', 'Do not check for updates at startup'), checkboxChecked: !!st.updateOff,
+    });
+    const st2 = readSettings(); st2.updateOff = !!r.checkboxChecked; writeSettings(st2);
+    if (r.response === 2) { st2.updateSkip = info.version; writeSettings(st2); return; }
+    if (r.response !== 0) return;
+    if (!canAuto) { shell.openExternal(info.page); return; }
+    await downloadAndRestart(info, asset, k);
+  } finally { updateBusy = false; }
+}
+async function downloadAndRestart(info, asset, k) {
+  const dir = path.dirname(k.self);
+  const target = path.join(dir, asset.name);
+  const tmp = target + '.part';
+  const send = (ch, ...a) => { for (const w of BrowserWindow.getAllWindows()) w.webContents.send(ch, ...a); };
+  try {
+    const r = await fetch(asset.url, { headers: { 'User-Agent': 'Nurigeul/' + app.getVersion() } });
+    if (!r.ok || !r.body) throw new Error('HTTP ' + r.status);
+    const total = +r.headers.get('content-length') || asset.size || 0;
+    const out = fs.createWriteStream(tmp);
+    let got = 0, lastPct = -1;
+    const reader = r.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      got += value.length;
+      if (!out.write(Buffer.from(value))) await new Promise((res) => out.once('drain', res));
+      const pct = total ? Math.floor((got / total) * 100) : -1;
+      if (pct !== lastPct) { lastPct = pct; send('update:progress', pct, got, total); }
+    }
+    await new Promise((res, rej) => out.end((err) => (err ? rej(err) : res())));
+    if (total && fs.statSync(tmp).size !== total) throw new Error(L('받은 파일 크기가 맞지 않습니다.', 'Downloaded size mismatch.'));
+    try { fs.unlinkSync(target); } catch { /* 없음 */ }
+    fs.renameSync(tmp, target);
+    if (k.kind === 'appimage') fs.chmodSync(target, 0o755);
+    send('update:progress', 100, got, total);
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch { /* 무시 */ }
+    send('update:progress', null);
+    const r = await msgBox({ type: 'error', title: L('업데이트', 'Update'), message: L('새 버전을 내려받지 못했습니다.', 'Download failed.'), detail: String(err.message || err), buttons: [L('내려받는 곳 열기', 'Open download page'), L('닫기', 'Close')], noLink: true });
+    if (r.response === 0) shell.openExternal(info.page);
+    return;
+  }
+  const r = await msgBox({
+    type: 'info', title: L('누리글 업데이트', 'Nurigeul Update'),
+    message: L(`누리글 ${info.version}을(를) 내려받았습니다.`, `Nurigeul ${info.version} downloaded.`),
+    detail: L(`저장 위치: ${target}\n\n지금 다시 시작할까요? (바뀐 문서는 저장할지 먼저 묻습니다)`, `Saved to: ${target}\n\nRestart now?`),
+    buttons: [L('다시 시작', 'Restart'), L('나중에', 'Later')], defaultId: 0, cancelId: 1, noLink: true,
+  });
+  if (r.response !== 0) return;
+  // 열린 문서 저장 확인 (창마다) → 새 버전 실행 → 끝내기
+  for (const w of BrowserWindow.getAllWindows()) {
+    const ok = await w.webContents.executeJavaScript('Tabs.confirmAll()').catch(() => true);
+    if (!ok) return;
+  }
+  const { spawn } = require('child_process');
+  const child = spawn(target, ['--after-update', '--old-exe=' + k.self], { detached: true, stdio: 'ignore', cwd: dir });
+  child.unref();
+  app.exit(0);
+}
+ipcMain.handle('update:check', () => checkUpdate(true));
+
+// 업데이트 뒤 새 버전으로 시작: 앞 버전이 완전히 끝날 때까지 잠시 기다렸다가 시작하고, 앞 버전 파일은 지움
+const afterUpdate = process.argv.includes('--after-update');
+function cleanupOld() {
+  const a = process.argv.find((x) => x.startsWith('--old-exe='));
+  if (!a) return;
+  const old = a.slice('--old-exe='.length);
+  const me = process.env.PORTABLE_EXECUTABLE_FILE || process.env.APPIMAGE || '';
+  if (!old || path.resolve(old) === path.resolve(me || '') || !/Nurigeul-(Portable-)?[\d.]+(-linux-x86_64\.AppImage|\.exe)$/i.test(old)) return;
+  let n = 0;
+  const tryDel = () => { try { fs.unlinkSync(old); } catch { if (++n < 20) setTimeout(tryDel, 1500); } };
+  setTimeout(tryDel, 1500);
+}
+let gotLock = app.requestSingleInstanceLock();
+if (!gotLock && afterUpdate) {
+  // 앞 버전이 아직 끝나는 중: 최대 15초까지 기다리며 다시 시도
+  const t0 = Date.now();
+  while (!gotLock && Date.now() - t0 < 15000) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 300); gotLock = app.requestSingleInstanceLock(); }
+}
 if (!gotLock) {
   app.quit();
 } else {
@@ -308,6 +447,9 @@ if (!gotLock) {
     const files = fileArgs(process.argv);
     if (files.length) files.forEach((f) => createWindow({ filePath: path.resolve(f) }));
     else createWindow();
+    if (afterUpdate) cleanupOld();
+    // 시작하고 조금 뒤 업데이트 확인 (6시간에 한 번)
+    setTimeout(() => checkUpdate(false).catch(() => {}), 8000);
   });
 
   app.on('window-all-closed', () => app.quit());

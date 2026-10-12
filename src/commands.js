@@ -205,6 +205,7 @@ const Commands = (() => {
   def('도구', 'macro-run', '매크로 실행…', { keys: ['Alt+Shift+L'], noHistory: true, run: () => Macro.runDialog() });
   for (let i = 0; i < 10; i++) def('도구', 'macro-' + (i + 1), `매크로 ${i + 1} 실행`, { keys: [`Alt+Shift+${(i + 1) % 10}`], hidden: true, noHistory: true, run: () => Macro.play(i) });
   def('도구', 'mm-make', '메일머지 만들기…', { keys: ['Alt+M'], icon: 'mail', noHistory: true, run: () => Merge.makeDialog() });
+  def('도구', 'update-check', '업데이트 확인…', { noHistory: true, enabled: () => !!(window.native && window.native.checkUpdate), run: () => window.native.checkUpdate() });
   def('도구', 'mm-datadoc', '메일머지 자료 문서 만들기…', { noHistory: true, run: () => Merge.dataDocDialog() });
   def('도구', 'default-font', '기본 글꼴 설정…', { noHistory: true, run: () => App.defaultFontDialog() });
   def('도구', 'shortcuts', '단축키 목록', { keys: ['F1'], icon: 'keyboard', noHistory: true, run: () => Dialogs.shortcuts() });

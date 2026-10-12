@@ -21,9 +21,10 @@ contextBridge.exposeInMainWorld('native', {
   saveSettings: (d) => ipcRenderer.invoke('settings:save', d),
   setLang: (l) => ipcRenderer.invoke('lang:set', l),
   appFonts: () => ipcRenderer.invoke('fonts:app'),
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
   pathForFile: (file) => { try { return webUtils.getPathForFile(file); } catch { return null; } },
   on: (ch, fn) => {
-    const allowed = ['app:close-request', 'macros:changed'];
+    const allowed = ['app:close-request', 'macros:changed', 'update:progress'];
     if (allowed.includes(ch)) ipcRenderer.on(ch, (e, ...a) => fn(...a));
   },
 });

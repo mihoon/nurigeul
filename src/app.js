@@ -73,6 +73,12 @@ const App = {
     this.updateStatus();
     this.loadLocalFonts();
     if (window.native) window.native.on('app:close-request', () => this.requestClose());
+    // 업데이트 내려받기 진행 상황
+    if (window.native) window.native.on('update:progress', (pct, got, total) => {
+      if (pct == null) { status(''); return; }
+      const mb = (n) => (n / 1048576).toFixed(1);
+      status(pct >= 100 ? '새 버전을 다 내려받았습니다.' : `새 버전 내려받는 중… ${pct >= 0 ? pct + '% ' : ''}(${mb(got)}${total ? ' / ' + mb(total) : ''} MB)`);
+    });
   },
 
   async loadLocalFonts() {
@@ -1834,7 +1840,7 @@ const MENUS = [
   { name: '서식', key: 'J', items: ['char-shape', 'para-shape', 'tab-dialog', 'style-dlg', '-', 'bold', 'italic', 'underline', 'strike', 'sup', 'sub', 'normal-char', '-', 'size-up', 'size-down', 'spacing-wide', 'spacing-narrow', 'ratio-wide', 'ratio-narrow', 'lh-up', 'lh-down', '-', 'align-justify', 'align-left', 'align-center', 'align-right', 'align-distribute', '-', 'indent-first', 'outdent-first', 'margin-inc', 'margin-dec', '-', 'numbering', 'numbering-shape', 'num-restart', 'bullets', 'bullet-shape', 'list-deeper', 'list-shallower'] },
   { name: '쪽', key: 'W', items: ['page-setup', 'page-break', '-', 'columns', 'col-break', '-', 'page-number', 'page-newnum', 'page-hide', 'header-footer'] },
   { name: '표', key: 'B', items: ['table-create', '-', 'cell-block', 'row-col-insert', 'row-add', 'col-add', 'row-col-delete', '-', 'cell-merge', 'cell-split', 'cell-props', 'cell-valign-top', 'cell-valign-middle', 'cell-valign-bottom', 'equal-width', 'equal-height', '-', 'table-split', 'table-join', '-', 'table-props', 'wrap-inline', 'wrap-left', 'wrap-right', 'wrap-front', 'wrap-behind', '-', 'table-delete'] },
-  { name: '도구', key: 'K', items: ['macro-record', 'macro-run', '-', 'mm-mark', 'mm-make', 'mm-datadoc', '-', 'default-font', 'shortcuts', 'about'] },
+  { name: '도구', key: 'K', items: ['macro-record', 'macro-run', '-', 'mm-mark', 'mm-make', 'mm-datadoc', '-', 'default-font', 'shortcuts', '-', 'update-check', 'about'] },
 ];
 
 App.buildMenubar = function () {
