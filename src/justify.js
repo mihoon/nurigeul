@@ -147,3 +147,72 @@ const LineLock = {
     });
   },
 };
+
+// 워드(docx) 문서의 양쪽 정렬: 워드는 줄에 낱말이 조금 넘치면 빈칸을 조금(약 12%까지) 줄여 그 줄에 넣음
+// (한계는 워드 화면에서 잰 값: 7% 줄여 넣은 줄과 17% 줄여야 해서 넘긴 줄 사이 → 12%) (브라우저는 넓히기만 함) → 빈칸을 미리 그만큼 줄여 두고 줄을 나눔. 실제로는 그 문단에 필요한 만큼만 줄임
+// (양쪽 정렬 줄은 어차피 끝까지 벌어지므로 티가 나지 않고, 마지막 줄만 빈칸이 조금 좁아짐). 화면 전용 스타일(#wfit-css)
+const WordFit = {
+  MAX: 0.12,
+  cache: new WeakMap(),
+  render() {
+    const ed = Sel.editor;
+    const css = document.getElementById('wfit-css') || document.head.appendChild(h('style', { id: 'wfit-css' }));
+    if (!ed || !ed.classList.contains('docx-doc')) { if (css.textContent) css.textContent = ''; return; }
+    if (App.composing) return;
+    const rule = (i, v) => `#editor.docx-doc > :nth-child(${i + 1}){--wjs:-${v.toFixed(4)}em}`;
+    const rules = [], cand = [];
+    const cv = this.cv || (this.cv = document.createElement('canvas').getContext('2d'));
+    Array.from(ed.children).forEach((p, i) => {
+      if (p.tagName !== 'P' || p.classList.contains('align-distribute') || !p.firstChild) return;
+      const key = p.textContent + '|' + p.clientWidth + '|' + (p.getAttribute('style') || '');
+      const c = this.cache.get(p);
+      if (c && c.key === key) { if (c.v) rules.push(rule(i, c.v)); return; }
+      const cs = getComputedStyle(p);
+      if (cs.textAlign !== 'justify' || !/\s/.test(p.textContent.trim())) { this.cache.set(p, { key, v: 0 }); return; }
+      const fs = parseFloat(cs.fontSize) || 13;
+      cv.font = `${fs}px ${cs.fontFamily}`;
+      const spEm = Math.max(0.15, (cv.measureText('a b').width - cv.measureText('ab').width) / fs);
+      cand.push({ p, i, key, cs, fs, spEm });
+    });
+    if (cand.length) {
+      css.textContent = rules.join('') + cand.map((c) => `#editor.docx-doc > :nth-child(${c.i + 1}){--wjs:-${(this.MAX * c.spEm).toFixed(4)}em !important;text-align:left !important}`).join('');
+      const z = App.zoom || 1;
+      const rng = document.createRange();
+      const rectsOf = (t, a, b) => { rng.setStart(t, a); rng.setEnd(t, b); return Array.from(rng.getClientRects()).filter((r) => r.width > 0 || r.height > 0); };
+      for (const c of cand) {
+        const { p, cs } = c;
+        const spPx = c.spEm * c.fs;
+        const lines = [], spaces = [];
+        const lineOf = (top) => { let L = lines.find((l) => Math.abs(l.top - top) < 2); if (!L) { L = { top, left: Infinity, right: -Infinity }; lines.push(L); } return L; };
+        const tw = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+        let t;
+        while ((t = tw.nextNode())) {
+          if (t.parentElement.closest('.nobj, .tab, .pgs')) continue;
+          const v = t.nodeValue;
+          const re = /[^  ​\n\t]+|[  ]/g;
+          let m;
+          while ((m = re.exec(v))) {
+            const a = m.index, b = a + m[0].length;
+            if (m[0] === ' ' || m[0] === ' ') { const r = rectsOf(t, a, b)[0]; if (r) spaces.push(r); continue; }
+            for (const r of rectsOf(t, a, b)) { const L = lineOf(r.top); L.left = Math.min(L.left, r.left); L.right = Math.max(L.right, r.right); }
+          }
+        }
+        lines.sort((x, y) => x.top - y.top);
+        const pr = p.getBoundingClientRect();
+        const edge = pr.right - ((parseFloat(cs.paddingRight) || 0) + (parseFloat(cs.borderRightWidth) || 0)) * z;
+        let need = 0;
+        for (const L of lines) { // 마지막 줄도 (줄여야 그 줄에 들어간 낱말이 다시 넘어가지 않게)
+          const n = spaces.filter((r) => Math.abs(r.top - L.top) < 2 && r.left >= L.left - 0.5 && r.right <= L.right + 0.5).length;
+          if (!n) continue;
+          const natural = (L.right - L.left) / z + this.MAX * spPx * n;
+          const avail = (edge - L.left) / z;
+          need = Math.max(need, (natural - avail) / (n * spPx));
+        }
+        const v = need > 0 ? Math.min(this.MAX, need + 0.01) * c.spEm : 0;
+        this.cache.set(p, { key: c.key, v });
+        if (v) rules.push(rule(c.i, v));
+      }
+    }
+    css.textContent = rules.join('');
+  },
+};

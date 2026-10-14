@@ -145,6 +145,9 @@ body.show-marks #marks, body.show-paramarks #marks { display: block; }
 #editor, #editor * { word-spacing: 0.22em; }
 /* 장평이 걸린 글은 빈칸도 장평만큼 줄임 (한글: 빈칸 = 글자 크기의 절반 × 장평) — 글자만 줄이면 영어처럼 빈칸 많은 줄이 길어짐 */
 #editor [style*="--hr"], #editor [style*="--hr"] * { word-spacing: calc(0.22em + (var(--hr) / 100 - 1) * 0.5em); }
+/* 워드(docx) 문서: 빈칸은 글꼴 본래 폭 (워드는 한글처럼 빈칸을 글자 크기의 절반으로 넓히지 않음) */
+#editor.docx-doc, #editor.docx-doc * { word-spacing: var(--wjs, 0px); }
+#editor.docx-doc [style*="--hr"], #editor.docx-doc [style*="--hr"] * { word-spacing: calc((var(--hr) / 100 - 1) * 0.28em + var(--wjs, 0px)); }
 /* 한글 '줄 나눔 기준': 한글은 글자 단위(기본)·어절 단위(keep-all), 영어는 단어 단위(긴 단어만 쪼갬) */
 #editor [data-kw] { word-break: keep-all; }
 /* 한글은 '글자' 단위 줄 나눔이어도 양쪽 정렬이 아닐 때(왼쪽·가운데·오른쪽)는 어절을 쪼개지 않음 (한글 2024 문서의 줄 나눔 위치로 확인) */

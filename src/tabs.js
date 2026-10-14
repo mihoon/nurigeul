@@ -38,6 +38,7 @@ const Tabs = {
     App.fileName = st.fileName;
     App.untitled = st.untitled;
     Sel.editor.classList.toggle('md-doc', /\.(md|markdown)$/i.test(st.fileName || ''));
+    Sel.editor.classList.toggle('docx-doc', /\.docx$/i.test(st.fileName || ''));
     Sel.editor.innerHTML = st.html;
     History.importState(st.history);
     App.dirty = st.dirty;

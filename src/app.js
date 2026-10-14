@@ -201,6 +201,13 @@ const App = {
         this.page = { ...DEFAULT_PAGE, ...(doc.page || {}) };
         this.docSettings = { header: null, footer: null, pageNum: null, ...doc.settings };
         this.setHtml(doc.html);
+      } else if (/\.docx$/i.test(f.name)) {
+        status('DOCX 문서를 불러오는 중…');
+        const doc = await DocxImport.read(f.data);
+        Sel.editor.classList.add('docx-doc');
+        this.page = { ...DEFAULT_PAGE, ...(doc.page || {}) };
+        this.docSettings = { header: null, footer: null, pageNum: null, ...doc.settings };
+        this.setHtml(doc.html);
       } else if (/\.(md|markdown)$/i.test(f.name)) {
         const text = readTextAuto(f.data);
         const r = await MD.load(text, f.path);
@@ -216,8 +223,9 @@ const App = {
         this.setHtml(text.replace(/\r\n?/g, '\n').split('\n').map((l) => `<p>${escHtml(l) || '<br>'}</p>`).join(''));
       }
       const isMd = /\.(md|markdown)$/i.test(f.name);
-      this.filePath = (/\.hwpx$/i.test(f.name) && !isHwp) || isMd ? f.path : null;
-      this.fileName = isMd ? f.name : f.name.replace(/\.[^.]+$/, '') + (/\.hwpx?$/i.test(f.name) || isHwp ? '.hwpx' : '');
+      const isDocx = /\.docx$/i.test(f.name);
+      this.filePath = (/\.hwpx$/i.test(f.name) && !isHwp) || isMd || isDocx ? f.path : null;
+      this.fileName = isMd || isDocx ? f.name : f.name.replace(/\.[^.]+$/, '') + (/\.hwpx?$/i.test(f.name) || isHwp ? '.hwpx' : '');
       this.dirty = false;
       this.updateTitle();
       if (isHwp) { status(`${f.name}을(를) HWPX로 바꿔 불러왔습니다. 저장하면 HWPX 파일로 저장됩니다.`); Sel.caretInto(Sel.editor.querySelector('p, td') || Sel.editor); Sel.editor.focus(); return; }
@@ -240,14 +248,33 @@ const App = {
     let p = this.filePath;
     if (!p || as) {
       const md = this.isMdDoc();
-      p = await window.native.saveDialog(md ? 'md' : 'hwpx', (this.fileName || `${T("문서")}${this.untitled}`).replace(/\.(hwpx|md|markdown)$/i, '') + (md ? '.md' : '.hwpx'));
+      const dx = /\.docx$/i.test(this.fileName || '');
+      p = await window.native.saveDialog(md ? 'md' : dx ? 'docxdoc' : 'hwpx', (this.fileName || `${T("문서")}${this.untitled}`).replace(/\.(hwpx|md|markdown|docx)$/i, '') + (md ? '.md' : dx ? '.docx' : '.hwpx'));
       if (!p) return false;
     }
     if (/\.(md|markdown)$/i.test(p)) return this.saveMd(p);
+    if (/\.docx$/i.test(p)) return this.saveDocx(p);
     try {
       this.prepareForOutput();
       const model = Model.fromEditor();
       const bytes = await HWPX.write(model, { title: this.baseName(p) });
+      await window.native.writeFile(p, bytes);
+      this.filePath = p;
+      this.fileName = p.split(/[\\/]/).pop();
+      this.dirty = false;
+      this.updateTitle();
+      status(`저장했습니다: ${p}`);
+      return true;
+    } catch (e) {
+      console.error(e);
+      Dialog.alert('저장하지 못했습니다: ' + e.message);
+      return false;
+    }
+  },
+  async saveDocx(p) {
+    try {
+      this.prepareForOutput();
+      const bytes = await DocxExport.write(Model.fromEditor());
       await window.native.writeFile(p, bytes);
       this.filePath = p;
       this.fileName = p.split(/[\\/]/).pop();
@@ -405,7 +432,11 @@ const App = {
   updateTitle() {
     const t = T(`${this.displayName()}${this.dirty ? ' *' : ''} - 누리글`);
     document.title = t;
-    if (Sel.editor) Sel.editor.classList.toggle('md-doc', this.isMdDoc());
+    if (Sel.editor) {
+      Sel.editor.classList.toggle('md-doc', this.isMdDoc());
+      const dx = /\.docx$/i.test(this.fileName || '');
+      if (Sel.editor.classList.contains('docx-doc') !== dx) { Sel.editor.classList.toggle('docx-doc', dx); if (this.layoutSoon) this.layoutSoon(); }
+    }
     if (window.native) window.native.setTitle(t);
     Tabs.render();
   },
@@ -661,6 +692,7 @@ const App = {
     }
     Ratio.render();
     LineLock.render();
+    WordFit.render();
     Justify.render();
     Img.syncFigs();
     Table.fitCellLines();
@@ -687,7 +719,7 @@ const App = {
       const mt = parseFloat(cs.marginTop) || 0, mb = parseFloat(cs.marginBottom) || 0;
       // 한글은 쪽 끝 줄이 '글자 높이'만 들어가면 그 쪽에 둠: 줄 간격 여분(줄 높이 - 글자 크기)과 문단 아래 간격은 쪽 끝에서 따지지 않음
       const lh = parseFloat(cs.lineHeight), fs = parseFloat(cs.fontSize) || 0;
-      const lead = lh > fs ? lh - fs : 0;
+      const lead = lh > fs && !ed.classList.contains('docx-doc') ? lh - fs : 0; // 워드는 줄 높이 전체가 들어가야 그 쪽에 둠
       const pb = parseFloat(cs.paddingBottom) || 0; // 한글 '문단 아래' 간격은 padding-bottom으로 들어옴
       return { top: b.offsetTop - mt, h: b.offsetHeight + mt + mb, mt, mb: mb + pb, lead, out: cs.position === 'absolute' || cs.float !== 'none' };
     });
@@ -842,7 +874,9 @@ const App = {
         // 한글처럼 문단을 줄 단위로 나눠 다음 쪽으로 이어 씀 (첫 줄부터 넘치면 문단째 넘김)
         const L = /^(P|H[1-6])$/.test(b.tagName) ? lineInfo(b) : null;
         let base = top, cut = [], splitDone = false;
-        if (L && L.lines.length > 1) {
+        // 줄 나누지 않음: 워드 '현재 문단을 나누지 않음'(data-keep), 또는 테두리 문단(나누면 테두리가 쪽 사이를 가로지름)이 반 쪽보다 작을 때
+        const keep = b.hasAttribute('data-keep') || (/border-(left|right|top|bottom)\s*:/.test(b.getAttribute('style') || '') && e.h <= CH / 2);
+        if (L && L.lines.length > 1 && !keep) {
           let k = pk;
           for (let li = 0; li < L.lines.length; li++) {
             const ln = L.lines[li];
@@ -1428,7 +1462,7 @@ App.bindEvents = function () {
   document.addEventListener('dragover', (e) => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); });
   document.addEventListener('drop', (e) => {
     if (e.defaultPrevented) return;
-    const files = Array.from(e.dataTransfer.files || []).filter((f) => /\.(hwpx|hwp|md|markdown|txt|html?)$/i.test(f.name));
+    const files = Array.from(e.dataTransfer.files || []).filter((f) => /\.(hwpx|hwp|docx|md|markdown|txt|html?)$/i.test(f.name));
     if (!files.length) return;
     e.preventDefault();
     files.forEach((f) => App.openPath(window.native.pathForFile(f)));
