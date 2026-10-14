@@ -1168,6 +1168,98 @@ const App = {
     if (ColBlock.clip && text && text.replace(/\r\n?/g, '\n') === ColBlock.clip.text && ColBlock.clip.lines.length > 1) { ColBlock.pasteColumn(ColBlock.clip.lines); return; }
     this.insertPasted(textOnly ? null : html, text);
   },
+  // 복사할 글의 HTML (화면용 꾸밈 없이): 한 문단 안이면 글자 모양 묶음(span)째로, 문단 글꼴·크기도 함께
+  clipHtml(r) {
+    const box = document.createElement('div');
+    box.append(r.cloneContents());
+    box.querySelectorAll('span.pgs, wbr').forEach((x) => x.remove());
+    box.querySelectorAll('span.rw, span.jl').forEach((x) => x.replaceWith(...x.childNodes));
+    const sb = blockOf(r.startContainer), eb = blockOf(r.endContainer);
+    if (!sb || sb !== eb || box.querySelector('p, div, table, li, h1, h2, h3, h4, h5, h6')) return { inline: false, html: box.innerHTML };
+    let n = r.commonAncestorContainer;
+    if (n.nodeType === 3) n = n.parentNode;
+    let inner = box.innerHTML;
+    for (let x = n; x && x !== sb && x !== Sel.editor; x = x.parentNode) {
+      if (x.nodeType !== 1 || x.matches('span.rw, span.jl, span.pgs')) continue;
+      if (x.matches('.nobj, .tab, [contenteditable="false"]')) return { inline: false, html: box.innerHTML };
+      const c = x.cloneNode(false);
+      c.innerHTML = inner;
+      inner = c.outerHTML;
+    }
+    const st = [];
+    if (sb.style && sb.style.fontSize) st.push(`font-size:${sb.style.fontSize}`);
+    if (sb.style && sb.style.fontFamily) st.push(`font-family:${sb.style.fontFamily.replace(/"/g, "'")}`);
+    return { inline: true, html: st.length ? `<span style="${st.join(';')}">${inner}</span>` : inner };
+  },
+  // 한 문단 안 글 붙이기: 커서 자리의 글자 묶음을 나누고 그 사이에 넣음 (붙인 글이 앞뒤 글 모양을 물려받거나 바꾸지 않게)
+  insertInline(html) {
+    const r = Sel.range();
+    if (!r) return false;
+    const blk = blockOf(r.startContainer);
+    if (!blk || !Sel.editor.contains(blk) || blockOf(r.endContainer) !== blk) return false;
+    if (!r.collapsed) r.deleteContents();
+    let node = r.startContainer, off = r.startOffset;
+    if (node.nodeType === 3) {
+      const after = node.splitText(off);
+      off = Array.prototype.indexOf.call(after.parentNode.childNodes, after);
+      node = after.parentNode;
+    }
+    while (node !== blk) {
+      const parent = node.parentNode;
+      if (!parent || (node.nodeType === 1 && node.matches('.nobj, [contenteditable="false"]'))) return false;
+      const idx = Array.prototype.indexOf.call(parent.childNodes, node);
+      if (off > 0 && off < node.childNodes.length) {
+        const clone = node.cloneNode(false);
+        clone.append(...Array.from(node.childNodes).slice(off));
+        parent.insertBefore(clone, node.nextSibling);
+      }
+      off = off === 0 ? idx : idx + 1;
+      node = parent;
+    }
+    const tpl = document.createElement('template');
+    tpl.innerHTML = html;
+    const nodes = Array.from(tpl.content.childNodes);
+    if (!nodes.length) return true;
+    // 빈 문단 자리표시 <br>은 지움
+    const onlyBr = Array.from(blk.childNodes).filter((x) => !(x.nodeType === 3 && !x.nodeValue));
+    if (onlyBr.length === 1 && onlyBr[0].nodeName === 'BR') { onlyBr[0].remove(); off = 0; }
+    const ref = blk.childNodes[off] || null;
+    for (const x of nodes) blk.insertBefore(x, ref);
+    // 붙인 글의 띄어쓰기가 앞뒤 빈칸과 겹쳐 없어지지 않게 (편집 영역은 연달은 빈칸을 하나로 그림)
+    const ins = [];
+    for (const x of nodes) {
+      if (x.nodeType === 3) ins.push(x);
+      else if (x.nodeType === 1) { const tw = document.createTreeWalker(x, NodeFilter.SHOW_TEXT); for (let t = tw.nextNode(); t; t = tw.nextNode()) ins.push(t); }
+    }
+    if (ins.length) {
+      const all = [];
+      const tw = document.createTreeWalker(blk, NodeFilter.SHOW_TEXT);
+      for (let t = tw.nextNode(); t; t = tw.nextNode()) all.push(t);
+      const charAt = (i, end) => { for (let k = i; k >= 0 && k < all.length; k += end ? -1 : 1) { const v = all[k].nodeValue; if (v) return end ? v[v.length - 1] : v[0]; } return null; };
+      for (const t of ins) {
+        let v = t.nodeValue.replace(/  /g, ' \u00a0');
+        const i = all.indexOf(t);
+        const prev = charAt(i - 1, true), next = charAt(i + 1, false);
+        if (v[0] === ' ' && (prev == null || /\s/.test(prev))) v = '\u00a0' + v.slice(1);
+        if (v.length && v[v.length - 1] === ' ' && (next == null || /\s/.test(next))) v = v.slice(0, -1) + '\u00a0';
+        if (v !== t.nodeValue) t.nodeValue = v;
+      }
+    }
+    // 빈 글 마디 정리
+    blk.querySelectorAll('span').forEach((x) => { if (!x.textContent && !x.querySelector('br, img, .tab, .nobj') && !x.matches('.tab, .nobj, .pgs')) x.remove(); });
+    const last = nodes[nodes.length - 1];
+    const nr = document.createRange();
+    if (last.isConnected) {
+      let t = last;
+      while (t.nodeType === 1 && t.lastChild) t = t.lastChild;
+      if (t.nodeType === 3) nr.setStart(t, t.length); else nr.setStartAfter(t);
+    } else nr.setStart(blk, Math.min(off, blk.childNodes.length));
+    nr.collapse(true);
+    const sel = getSelection();
+    sel.removeAllRanges();
+    sel.addRange(nr);
+    return true;
+  },
   insertPasted(html, text) {
     if (html) {
       let clean = sanitizeHtml(html);
@@ -1394,7 +1486,10 @@ App.bindEvents = function () {
       return;
     }
     if (Macro.active) Macro.cmd('paste', { html: html || undefined, text });
-    App.insertPasted(html, text);
+    // 누리글 안에서 복사한 글: 크롬이 클립보드에 넣은 '계산된 모양'(글꼴·빈칸 폭 등을 px로 박은 것) 대신 원래 글 그대로 붙임
+    const own = App._clip && text != null && text.replace(/\r\n?/g, '\n') === App._clip.text ? App._clip : null;
+    if (own && own.inline && App.insertInline(own.html)) { App.changed(); return; }
+    App.insertPasted(own ? own.html : html, text);
     App.changed();
   });
   // 복사: 다른 프로그램에 붙일 글(text/plain)은 문단마다 줄 하나로 (크롬 기본은 문단 사이에 빈 줄)
@@ -1403,6 +1498,7 @@ App.bindEvents = function () {
     const r = Sel.range();
     if (!r || r.collapsed) return;
     const plain = App.plainText(r);
+    try { App._clip = { text: plain.replace(/\r\n?/g, '\n'), ...App.clipHtml(r) }; } catch { App._clip = null; }
     setTimeout(async () => {
       try {
         let html = '';
