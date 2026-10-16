@@ -172,6 +172,7 @@ const Commands = (() => {
 
   // ================= 그림 =================
   def('그림', 'image-props', '그림 속성…', { enabled: () => !!Img.selected, ask: () => (Img.selected ? Dialogs.imageProps(Img.selected) : null), run: (a) => { const el = Img.selected; if (a.reset) Img.resetSize(); else Img.setSizeMM(null, a.w, a.hh); Img.setWrap(null, a.wrap); if (el) { Look.set(el, a); Img.drawBox(); } } });
+  def('그림', 'image-crop', '그림 자르기…', { enabled: () => !!Img.selected && Img.selected.tagName === 'IMG', ask: () => Img.cropDialog(), run: (a) => Img.applyCrop(a) });
   def('그림', 'image-caption', '캡션 넣기/고치기…', { keys: ['Ctrl+N,C'], enabled: () => !!Img.selected && Img.selected.tagName === 'IMG', ask: () => Img.captionDialog(), run: (a) => Img.setCaptions(a) });
   def('그림', 'image-wrap', '그림 배치', { hidden: true, run: (a) => Shapes.setWrap(a.wrap) });
 

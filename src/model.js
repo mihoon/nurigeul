@@ -235,6 +235,7 @@ const Model = {
     const hh = parseFloat(node.style.height) || rect.height / z || node.naturalHeight;
     const im = { url: node.src, w, h: hh, wrap: node.dataset.wrap || 'inline', name: node.dataset.name || '', ...Look.model(node) };
     if (node.dataset.z) im.z = +node.dataset.z;
+    if (node.dataset.crop && typeof Img !== 'undefined') { const c = Img.cropOf(node); if (c[0] > 0 || c[1] > 0 || c[2] < 1 || c[3] < 1) im.crop = c; }
     if (node.dataset.vdrop && (im.wrap === 'left' || im.wrap === 'right')) im.vdrop = +node.dataset.vdrop;
     if (im.wrap === 'front' || im.wrap === 'behind') { im.x = parseFloat(node.style.left) || 0; im.y = parseFloat(node.style.top) || 0; }
     return im;

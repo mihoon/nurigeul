@@ -204,6 +204,7 @@ const Img = {
     const w0 = img.getBoundingClientRect().width / z, h0 = img.getBoundingClientRect().height / z;
     const x0 = e.clientX, y0 = e.clientY;
     const isObj = Shapes.isObj(img);
+    if (!isObj && img.tagName === 'IMG' && e.shiftKey) { this.startCrop(e, dir, img); return; }
     const isLine = isObj && img.dataset.shape === 'line';
     const ratio = h0 ? w0 / h0 : 1;
     const corner = dir.length === 2;
@@ -215,8 +216,8 @@ const Img = {
       let w = w0, hh = h0;
       if (dir.includes('e') || dir.includes('w')) w = Math.max(minS, w0 + dx);
       if (dir.includes('s') || dir.includes('n')) hh = Math.max(minS, h0 + dy);
-      // 그림은 모서리를 끌면 비율 유지(Shift: 자유), 도형은 반대
-      if (corner && h0 && (isObj ? ev.shiftKey : !ev.shiftKey)) {
+      // 그림은 모서리를 끌면 비율 유지(Ctrl: 자유 — Shift는 자르기), 도형은 반대(Shift: 비율 유지)
+      if (corner && h0 && (isObj ? ev.shiftKey : !ev.ctrlKey)) {
         // 비율 유지
         if (Math.abs(dx) > Math.abs(dy)) hh = w / ratio; else w = hh * ratio;
       }
@@ -305,11 +306,101 @@ const Img = {
     img.style.height = Math.round(U.mm2px(hmm)) + 'px';
     this.drawBox();
   },
+  // ---- 그림 자르기: data-crop="왼 위 오른 아래" (원래 그림에서 보이는 부분의 비율 0~1) ----
+  cropOf(img) {
+    const v = String((img && img.dataset.crop) || '').trim().split(/\s+/).map(Number);
+    return v.length === 4 && v.every((x) => isFinite(x)) ? v : [0, 0, 1, 1];
+  },
+  setCrop(img, c) {
+    let [l, t, r, b] = c.map((x) => Math.min(1, Math.max(0, x)));
+    if (r - l < 0.005) r = Math.min(1, l + 0.005);
+    if (b - t < 0.005) b = Math.min(1, t + 0.005);
+    if (l < 0.0005 && t < 0.0005 && r > 0.9995 && b > 0.9995) {
+      delete img.dataset.crop;
+      img.style.removeProperty('object-view-box');
+      return;
+    }
+    const f = (x) => Math.round(x * 100000) / 100000;
+    img.dataset.crop = [l, t, r, b].map(f).join(' ');
+    const pc = (x) => `${Math.round(x * 100000) / 1000}%`;
+    img.style.setProperty('object-view-box', `inset(${pc(t)} ${pc(1 - r)} ${pc(1 - b)} ${pc(l)})`);
+  },
+  // Shift + 조절점 끌기: 끈 만큼 잘라 냄 (그림 배율은 그대로, 보이는 크기만 줄거나 늚 — 원래 그림 밖으로는 못 늘림)
+  startCrop(e, dir, img) {
+    const z = App.zoom;
+    const w0 = img.getBoundingClientRect().width / z, h0 = img.getBoundingClientRect().height / z;
+    const c0 = this.cropOf(img);
+    const W = w0 / (c0[2] - c0[0]), H = h0 / (c0[3] - c0[1]); // 원래 그림 전체의 화면 크기
+    const x0 = e.clientX, y0 = e.clientY;
+    const L0 = parseFloat(img.style.left) || 0, T0 = parseFloat(img.style.top) || 0;
+    const floating = this.isFloating(img);
+    let moved = false;
+    const move = (ev) => {
+      const dx = (ev.clientX - x0) / z, dy = (ev.clientY - y0) / z;
+      if (!moved && Math.abs(dx) + Math.abs(dy) < 2) return;
+      moved = true;
+      let [l, t, r, b] = c0;
+      if (dir.includes('e')) r = Math.min(1, Math.max(l + 8 / W, c0[2] + dx / W));
+      if (dir.includes('w')) l = Math.max(0, Math.min(r - 8 / W, c0[0] + dx / W));
+      if (dir.includes('s')) b = Math.min(1, Math.max(t + 8 / H, c0[3] + dy / H));
+      if (dir.includes('n')) t = Math.max(0, Math.min(b - 8 / H, c0[1] + dy / H));
+      this.setCrop(img, [l, t, r, b]);
+      img.style.width = Math.round((r - l) * W) + 'px';
+      img.style.height = Math.round((b - t) * H) + 'px';
+      // 떠 있는 그림은 왼쪽·위를 자르면 남은 부분이 제자리에 있게 위치도 옮김
+      if (floating) {
+        if (dir.includes('w')) img.style.left = Math.round(L0 + (l - c0[0]) * W) + 'px';
+        if (dir.includes('n')) img.style.top = Math.round(T0 + (t - c0[1]) * H) + 'px';
+      }
+      this.syncFig(img);
+      this.drawBox();
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      if (moved) App.changed();
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  },
+  // 자르기 대화 상자: 네 쪽에서 잘라 낼 길이(mm, 지금 크기 기준)
+  async cropDialog(img) {
+    img = img || this.selected;
+    if (!img || img.tagName !== 'IMG') return null;
+    const z = App.zoom;
+    const rc = img.getBoundingClientRect();
+    const c = this.cropOf(img);
+    const W = rc.width / z / (c[2] - c[0]), H = rc.height / z / (c[3] - c[1]);
+    const mm = (px) => Math.round(U.px2mm(px) * 10) / 10;
+    const v = await Dialog.form('그림 자르기', [
+      { name: 'l', label: '왼쪽', type: 'number', value: mm(c[0] * W), step: 0.1, min: 0, suffix: 'mm' },
+      { name: 'r', label: '오른쪽', type: 'number', value: mm((1 - c[2]) * W), step: 0.1, min: 0, suffix: 'mm' },
+      { name: 't', label: '위쪽', type: 'number', value: mm(c[1] * H), step: 0.1, min: 0, suffix: 'mm' },
+      { name: 'b', label: '아래쪽', type: 'number', value: mm((1 - c[3]) * H), step: 0.1, min: 0, suffix: 'mm' },
+      { name: 'reset', label: '자르기 없애기 (원래 그림 전체)', type: 'checkbox', value: false },
+    ], { okLabel: '자르기', note: `원래 그림 전체 크기: ${mm(W)} × ${mm(H)} mm. 조절점을 Shift를 누른 채 끌어도 자를 수 있습니다.` });
+    if (!v) return null;
+    if (v.reset) return { crop: [0, 0, 1, 1], W, H };
+    const px = (x) => U.mm2px(Math.max(0, +x || 0));
+    return { crop: [px(v.l) / W, px(v.t) / H, 1 - px(v.r) / W, 1 - px(v.b) / H], W, H };
+  },
+  applyCrop(a, img) {
+    img = img || this.selected;
+    if (!img || !a || !a.crop) return;
+    const W = a.W, H = a.H;
+    this.setCrop(img, a.crop);
+    const c = this.cropOf(img);
+    img.style.width = Math.round((c[2] - c[0]) * W) + 'px';
+    img.style.height = Math.round((c[3] - c[1]) * H) + 'px';
+    this.syncFig(img);
+    this.drawBox();
+  },
   resetSize(img) {
     img = img || this.selected;
     if (!img || img.tagName !== 'IMG') return;
+    const cr = this.cropOf(img);
     imageSize(img.src).then((d) => {
-      let w = d.w, hh = d.h;
+      let w = d.w * (cr[2] - cr[0]), hh = d.h * (cr[3] - cr[1]);
       const maxW = App.contentWidth();
       if (w > maxW) { hh = hh * maxW / w; w = maxW; }
       img.style.width = Math.round(w) + 'px';

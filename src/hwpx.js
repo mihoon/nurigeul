@@ -152,6 +152,10 @@ const HWPX = (() => {
       const bin = binFor(img.url);
       if (!bin) return '';
       const w = U.px2hwp(img.w), hh = U.px2hwp(img.h);
+      // 자른 그림: 원래 그림 전체 크기(orgSz·imgDim) 안에서 보이는 부분(imgClip)
+      const cr = img.crop || [0, 0, 1, 1];
+      const ow = Math.max(1, Math.round(w / (cr[2] - cr[0]))), oh = Math.max(1, Math.round(hh / (cr[3] - cr[1])));
+      const clip = `<hp:imgClip left="${Math.round(cr[0] * ow)}" right="${Math.round(cr[2] * ow)}" top="${Math.round(cr[1] * oh)}" bottom="${Math.round(cr[3] * oh)}"/>`;
       const id = nid();
       const inline = !img.wrap || img.wrap === 'inline';
       const floating = img.wrap === 'front' || img.wrap === 'behind';
@@ -159,12 +163,12 @@ const HWPX = (() => {
       const wrap = inline ? 'SQUARE' : img.wrap === 'center' ? 'TOP_AND_BOTTOM' : floating ? (img.wrap === 'front' ? 'IN_FRONT_OF_TEXT' : 'BEHIND_TEXT') : 'SQUARE';
       const posXml = posXmlOf(img);
       return `<hp:pic textWrap="${wrap}" textFlow="BOTH_SIDES" reverse="0" id="${id}" zOrder="${img.z != null ? img.z : bins.length}" numberingType="PICTURE" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${id}">`
-        + `<hp:offset x="0" y="0"/><hp:orgSz width="${w}" height="${hh}"/><hp:curSz width="${w}" height="${hh}"/><hp:flip horizontal="0" vertical="0"/>`
+        + `<hp:offset x="0" y="0"/><hp:orgSz width="${ow}" height="${oh}"/><hp:curSz width="${w}" height="${hh}"/><hp:flip horizontal="0" vertical="0"/>`
         + `<hp:rotationInfo angle="0" centerX="${Math.round(w / 2)}" centerY="${Math.round(hh / 2)}" rotateimage="1"/>`
         + `<hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo>`
         + (img.bd ? lineShapeXml(img.bd.color, img.bd.w, img.bd.style) : '')
         + `<hp:imgRect><hc:pt0 x="0" y="0"/><hc:pt1 x="${w}" y="0"/><hc:pt2 x="${w}" y="${hh}"/><hc:pt3 x="0" y="${hh}"/></hp:imgRect>`
-        + `<hp:imgClip left="0" right="${w}" top="0" bottom="${hh}"/><hp:inMargin left="0" right="0" top="0" bottom="0"/><hp:imgDim dimwidth="${w}" dimheight="${hh}"/>`
+        + `${clip}<hp:inMargin left="0" right="0" top="0" bottom="0"/><hp:imgDim dimwidth="${ow}" dimheight="${oh}"/>`
         + `<hc:img binaryItemIDRef="${bin}" bright="0" contrast="0" effect="REAL_PIC" alpha="0"/><hp:effects/>`
         + `<hp:sz width="${w}" widthRelTo="ABSOLUTE" height="${hh}" heightRelTo="ABSOLUTE" protect="0"/>`
         + posXml
@@ -1093,12 +1097,29 @@ const HWPX = (() => {
         mg = `;margin:${q('top') + vdrop}px ${q('right')}px ${q('bottom')}px ${q('left')}px`;
       } else if (vdrop) mg = `;margin-top:${vdrop}px`;
     }
-    const style = w && hh ? ` style="width:${Math.round(w)}px;height:${Math.round(hh)}px${mg}${vdrop ? `;shape-outside:inset(${vdrop}px 0 0 0)` : ''}"${vdrop ? ` data-vdrop="${vdrop}"` : ''}` : '';
+    // 자른 그림 (imgClip: imgDim — 없으면 orgSz — 안에서 보이는 부분)
+    let cropAttr = '', cropCss = '';
+    const clipEl = kid(pic, 'imgClip');
+    if (clipEl) {
+      const dEl = kid(pic, 'imgDim'), oEl = kid(pic, 'orgSz');
+      let DW = num(dEl && dEl.getAttribute('dimwidth'), 0), DH = num(dEl && dEl.getAttribute('dimheight'), 0);
+      if (!(DW > 0 && DH > 0)) { DW = num(oEl && oEl.getAttribute('width'), 0); DH = num(oEl && oEl.getAttribute('height'), 0); }
+      if (DW > 0 && DH > 0) {
+        const f = (n, D) => Math.min(1, Math.max(0, num(clipEl.getAttribute(n), 0) / D));
+        const c = [f('left', DW), f('top', DH), f('right', DW), f('bottom', DH)];
+        if (c[2] - c[0] > 0.005 && c[3] - c[1] > 0.005 && (c[0] > 0.0005 || c[1] > 0.0005 || c[2] < 0.9995 || c[3] < 0.9995)) {
+          const r5 = (x) => Math.round(x * 100000) / 100000, pc = (x) => `${Math.round(x * 100000) / 1000}%`;
+          cropAttr = ` data-crop="${c.map(r5).join(' ')}"`;
+          cropCss = `;object-view-box:inset(${pc(c[1])} ${pc(1 - c[2])} ${pc(1 - c[3])} ${pc(c[0])})`;
+        }
+      }
+    }
+    const style = w && hh ? ` style="width:${Math.round(w)}px;height:${Math.round(hh)}px${cropCss}${mg}${vdrop ? `;shape-outside:inset(${vdrop}px 0 0 0)` : ''}"${vdrop ? ` data-vdrop="${vdrop}"` : ''}` : '';
     // 한글이 적어 두는 개체 설명: "원본 그림의 이름: 사진.jpg"
     const cm = kid(pic, 'shapeComment');
     const nm = cm && /원본 그림의 이름\s*:\s*([^\r\n]+)/.exec(cm.textContent || '');
     const nameAttr = nm ? ` data-name="${escHtml(nm[1].trim().split(/[\\/]/).pop())}"` : '';
-    const imgHtml = `<img src="${url}"${style}${wrap ? ` data-wrap="${wrap}"` : ''}${extra}${pic.getAttribute('zOrder') ? ` data-z="${+pic.getAttribute('zOrder')}"` : ''}${lookAttrs(pic, wrap)}${nameAttr}>`;
+    const imgHtml = `<img src="${url}"${style}${cropAttr}${wrap ? ` data-wrap="${wrap}"` : ''}${extra}${pic.getAttribute('zOrder') ? ` data-z="${+pic.getAttribute('zOrder')}"` : ''}${lookAttrs(pic, wrap)}${nameAttr}>`;
     const cap = kid(pic, 'caption');
     if (!cap) return imgHtml;
     return `<span class="figure" contenteditable="false" data-cap="${cap.getAttribute('side') === 'TOP' ? 'top' : 'bottom'}"${w ? ` style="width:${Math.round(w)}px"` : ''}>${imgHtml}${captionHtml(cap, ctx)}</span>`;

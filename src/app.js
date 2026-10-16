@@ -714,6 +714,8 @@ const App = {
     const kids = Array.from(ed.children);
     kids.forEach((b) => { if (b.classList.contains('pagebreak')) b.style.height = '0px'; });
     ed.style.minHeight = '';
+    // 지난번 쪽 수로 늘려 둔 높이도 풀어야 글이 줄었을 때 쪽 수가 줄어듦 (편집 영역은 min-height:100%라 쪽 틀 높이를 따라감 → 빈 쪽이 남음)
+    page.style.minHeight = '';
     const m = kids.map((b) => {
       const cs = getComputedStyle(b);
       const mt = parseFloat(cs.marginTop) || 0, mb = parseFloat(cs.marginBottom) || 0;
@@ -1173,6 +1175,7 @@ const App = {
     const box = document.createElement('div');
     box.append(r.cloneContents());
     box.querySelectorAll('span.pgs, wbr').forEach((x) => x.remove());
+    box.querySelectorAll('div.pagebreak').forEach((x) => x.style.removeProperty('height'));
     box.querySelectorAll('span.rw, span.jl').forEach((x) => x.replaceWith(...x.childNodes));
     const sb = blockOf(r.startContainer), eb = blockOf(r.endContainer);
     if (!sb || sb !== eb || box.querySelector('p, div, table, li, h1, h2, h3, h4, h5, h6')) return { inline: false, html: box.innerHTML };
@@ -1966,7 +1969,7 @@ const MENUS = [
   { name: '파일', key: 'F', items: ['file-new', 'file-new-window', 'file-open', '-', 'file-save', 'file-saveas', 'file-docx', 'file-pdf', 'file-image', '-', 'page-setup', 'file-print', '-', 'file-close', 'app-quit'] },
   { name: '편집', key: 'E', items: ['undo', 'redo', '-', 'cut', 'copy', 'paste', 'paste-text', '-', 'select-all', 'block', 'col-block', 'caret-add-up', 'caret-add-down', '-', 'delete-line', 'delete-eol', 'delete-word', '-', 'find', 'replace', 'find-next', 'goto', '-', 'shape-copy'] },
   { name: '보기', key: 'U', items: ['fullscreen', 'toggle-toolbar', '-', 'toggle-guides', 'toggle-paramarks', 'toggle-marks', 'toggle-hruler', 'toggle-vruler', '-', 'split-v', 'split-h', 'split-off', '-', 'lang-ko', 'lang-en', '-', 'zoom-in', 'zoom-out', 'zoom-100', 'zoom-width'] },
-  { name: '입력', key: 'D', items: ['table-create', 'image-insert', 'textbox', '-', 'shape-line', 'shape-arrow', 'shape-darrow', 'shape-rect', 'shape-roundrect', 'shape-ellipse', 'shape-triangle', '-', 'wrap-inline', 'wrap-left', 'wrap-right', 'wrap-front', 'wrap-behind', 'object-props', 'image-caption', 'shape-text', 'obj-group', 'obj-ungroup', '-', 'page-break', 'symbols', 'date-insert', 'link', '-', 'mm-mark'] },
+  { name: '입력', key: 'D', items: ['table-create', 'image-insert', 'textbox', '-', 'shape-line', 'shape-arrow', 'shape-darrow', 'shape-rect', 'shape-roundrect', 'shape-ellipse', 'shape-triangle', '-', 'wrap-inline', 'wrap-left', 'wrap-right', 'wrap-front', 'wrap-behind', 'object-props', 'image-crop', 'image-caption', 'shape-text', 'obj-group', 'obj-ungroup', '-', 'page-break', 'symbols', 'date-insert', 'link', '-', 'mm-mark'] },
   { name: '서식', key: 'J', items: ['char-shape', 'para-shape', 'tab-dialog', 'style-dlg', '-', 'bold', 'italic', 'underline', 'strike', 'sup', 'sub', 'normal-char', '-', 'size-up', 'size-down', 'spacing-wide', 'spacing-narrow', 'ratio-wide', 'ratio-narrow', 'lh-up', 'lh-down', '-', 'align-justify', 'align-left', 'align-center', 'align-right', 'align-distribute', '-', 'indent-first', 'outdent-first', 'margin-inc', 'margin-dec', '-', 'numbering', 'numbering-shape', 'num-restart', 'bullets', 'bullet-shape', 'list-deeper', 'list-shallower'] },
   { name: '쪽', key: 'W', items: ['page-setup', 'page-break', '-', 'columns', 'col-break', '-', 'page-number', 'page-newnum', 'page-hide', 'header-footer'] },
   { name: '표', key: 'B', items: ['table-create', '-', 'cell-block', 'row-col-insert', 'row-add', 'col-add', 'row-col-delete', '-', 'cell-merge', 'cell-split', 'cell-props', 'cell-valign-top', 'cell-valign-middle', 'cell-valign-bottom', 'equal-width', 'equal-height', '-', 'table-split', 'table-join', '-', 'table-props', 'wrap-inline', 'wrap-left', 'wrap-right', 'wrap-front', 'wrap-behind', '-', 'table-delete'] },
@@ -2076,7 +2079,7 @@ App.showContextMenu = function (e) {
     if (obj.dataset.kind === 'group') items.push('-', 'obj-ungroup');
     const isImg = obj.tagName === 'IMG';
     items.push('-', Img.propsCmd(obj));
-    if (isImg) items.push('image-caption');
+    if (isImg) items.push('image-crop', 'image-caption');
     if (Shapes.canHaveText(obj)) items.push({ label: obj.querySelector('.sh-text') ? '도형 안 글자 고치기' : '도형 안에 글자 넣기', run: () => Shapes.addText(obj) });
     items.push(...wrapItems(Shapes.WRAPS),
       { label: isImg ? '그림 지우기' : '개체 지우기', key: 'Delete', run: () => Img.remove() });
@@ -2239,6 +2242,13 @@ function sanitizeHtml(html) {
         c.replaceWith(...Array.from(c.childNodes));
         return walk(el);
       }
+      // 누리글의 쪽 나누기: 그대로 (높이는 화면용이라 버림)
+      if (tag === 'DIV' && node.classList.contains('pagebreak') && !node.textContent.trim()) {
+        for (const a of Array.from(node.attributes)) node.removeAttribute(a.name);
+        node.className = 'pagebreak';
+        node.setAttribute('contenteditable', 'false');
+        continue;
+      }
       // 속성 정리
       const isObjSpan = tag === 'SPAN' && /(^|\s)(nobj|tb-body|sh-text)(\s|$)/.test(node.getAttribute('class') || '');
       if (isObjSpan) node.setAttribute('class', ['nobj', 'tb-body', 'sh-text'].find((c) => node.classList.contains(c)));
@@ -2251,7 +2261,12 @@ function sanitizeHtml(html) {
             if (!p || !rest.length) continue;
             const prop = p.trim().toLowerCase();
             const val = rest.join(':').trim();
-            if (STYLE_OK.includes(prop) && !/expression|url\(/i.test(val)) keep.push(`${prop}:${val}`);
+            if (!STYLE_OK.includes(prop) || /expression|url\(/i.test(val)) continue;
+            // 크기·자리는 그림·표·개체에만 (웹 글의 height·min-height 등이 문단에 붙으면 보이지 않는 빈 쪽이 생김)
+            if (/^(width|height|min-height|top|left)$/.test(prop) && !(/^(IMG|TABLE|TD|TH|COL)$/.test(tag) || isObjSpan)) continue;
+            // 너무 큰 줄 간격도 버림
+            if (prop === 'line-height') { const n = parseFloat(val); if (!isFinite(n) || (/^[\d.]+$/.test(val) ? n > 6 : /px/.test(val) ? n > 150 : /pt/.test(val) ? n > 110 : /%/.test(val) ? n > 600 : n > 6)) continue; }
+            keep.push(`${prop}:${val}`);
           }
           if (keep.length) node.setAttribute('style', keep.join(';')); else node.removeAttribute('style');
         } else if ((n === 'colspan' || n === 'rowspan') && /^(TD|TH)$/.test(tag)) { /* 유지 */ }
